@@ -62,34 +62,39 @@ async def generate_audio():
 asyncio.run(generate_audio())
 
 # ----------------------------------------------------
-# 4. Invidious/Piped API 우회 방식을 통한 유튜브 CC 영상 다운로드
+# 4. Invidious & Piped 최신 이중 프록시 API 우회 다운로드
 # ----------------------------------------------------
 print("3. 유튜브 CC 영상 우회 다운로드 중...")
 
-# Invidious 및 Piped 퍼블릭 인스턴스 서버 리스트
+# 현재 최신 렌더링 정상 가동 퍼블릭 인스턴스 배열
 INVIDIOUS_INSTANCES = [
-    "https://inv.riverside.rocks",
-    "https://invidious.nerdvpn.de",
-    "https://invidious.flokinet.to",
-    "https://invidious.drgns.space",
-    "https://vid.puffyan.us"
+    "https://yewtu.be",
+    "https://invidious.no-bo.dev",
+    "https://invidious.projectsegfau.lt",
+    "https://invidious.privacydev.net",
+    "https://inv.tux.pizza"
 ]
 
 search_query = "nature 4k relax creative commons"
 download_success = False
+
+# User-Agent 설정으로 403 차단 회피
+headers = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+}
 
 for instance in INVIDIOUS_INSTANCES:
     try:
         print(f"  [인스턴스 시도] {instance}")
         # 1) 영상 검색 요청
         search_url = f"{instance}/api/v1/search?q={search_query}&type=video"
-        res = requests.get(search_url, timeout=10)
+        res = requests.get(search_url, headers=headers, timeout=10)
         
         if res.status_code != 200:
             continue
             
         search_results = res.json()
-        if not search_results:
+        if not search_results or not isinstance(search_results, list):
             continue
             
         # 검색결과 중 첫 번째 비디오 ID 추출
@@ -99,7 +104,7 @@ for instance in INVIDIOUS_INSTANCES:
 
         # 2) 비디오 정보 및 직접 다운로드 스트림 URL 추출
         video_info_url = f"{instance}/api/v1/videos/{video_id}"
-        info_res = requests.get(video_info_url, timeout=10)
+        info_res = requests.get(video_info_url, headers=headers, timeout=10)
         
         if info_res.status_code != 200:
             continue
@@ -119,7 +124,7 @@ for instance in INVIDIOUS_INSTANCES:
 
         if target_stream_url:
             print(f"  ✓ 우회 스트림 URL 확보 성공! 다운로드 시작...")
-            video_data = requests.get(target_stream_url, timeout=30)
+            video_data = requests.get(target_stream_url, headers=headers, timeout=30)
             with open("background.mp4", "wb") as f:
                 f.write(video_data.content)
                 
@@ -132,7 +137,7 @@ for instance in INVIDIOUS_INSTANCES:
         continue
 
 if not download_success:
-    raise Exception("❌ 유튜브 우회 다운로드 실패: 모든 Invidious 프록시 응답 없음")
+    raise Exception("❌ 유튜브 우회 다운로드 실패: 모든 프록시 노드 응답 없음")
 
 # ----------------------------------------------------
 # 5. 영상 + 음성 + 자막 합성 (MoviePy v2.0+ 대응)
