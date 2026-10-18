@@ -29,7 +29,7 @@ body = {
         'categoryId': '27' # 교육(Education) 카테고리
     },
     'status': {
-        'privacyStatus': 'public', # 공개 상태 (public / private / unlisted)
+        'privacyStatus': 'unlisted', # 미등록 상태 (링크로만 접근 가능, 내가 스튜디오 앱에서 직접 '공개' 전환 가능)
         'selfDeclaredMadeForKids': False
     }
 }
@@ -38,7 +38,7 @@ body = {
 file_path = "final_shorts.mp4"
 media = MediaFileUpload(file_path, chunksize=-1, resumable=True, mimetype='video/mp4')
 
-print("유튜브 업로드 시작...")
+print("유튜브 업로드 시작 (미등록 상태)...")
 request = youtube.videos().insert(
     part=','.join(body.keys()),
     body=body,
@@ -51,4 +51,5 @@ while response is None:
     if status:
         print(f"업로드 진행률: {int(status.progress() * 100)}%")
 
-print(f"✨ 업로드 완료! 동영상 ID: {response['id']}")
+print(f"✨ 미등록 업로드 완료! 동영상 ID: {response['id']}")
+print(f"🔗 미리보기 링크: https://youtube.com/shorts/{response['id']}")
