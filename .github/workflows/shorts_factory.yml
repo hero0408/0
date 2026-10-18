@@ -37,6 +37,7 @@ jobs:
         YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
         YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
         YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+        YOUTUBE_COOKIES: ${{ secrets.YOUTUBE_COOKIES }}
       run: python main.py
 
     - name: 2. 유튜브 자동 업로드
