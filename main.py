@@ -6,15 +6,11 @@ import yt_dlp
 from google import genai
 from moviepy.editor import VideoFileClip, AudioFileClip, TextClip, CompositeVideoClip
 
-# ----------------------------------------------------
 # 1. API 키 설정
-# ----------------------------------------------------
 api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
 client = genai.Client(api_key=api_key)
 
-# ----------------------------------------------------
-# 2. AI 대본 생성 (503 에러/트래픽 폭주 자동 재시도 및 백업 모델)
-# ----------------------------------------------------
+# 2. AI 대본 생성
 print("1. AI 대본 생성 중...")
 prompt = "유튜브 쇼츠용 흥미로운 상식 1가지를 15초 분량(한국어 3~4문장)으로 작성해줘. 응답은 오직 대본 내용만 출력해."
 
@@ -43,9 +39,7 @@ if not script_text:
 
 print(f"  ✓ 대본 완성: {script_text}")
 
-# ----------------------------------------------------
-# 3. 음성 파일 생성 (Edge-TTS)
-# ----------------------------------------------------
+# 3. 음성 파일 생성
 print("2. 음성 파일 생성 중...")
 async def generate_audio():
     communicate = edge_tts.Communicate(script_text, "ko-KR-SunHiNeural")
@@ -53,9 +47,7 @@ async def generate_audio():
 
 asyncio.run(generate_audio())
 
-# ----------------------------------------------------
-# 4. 유튜브 CC 영상 다운로드 (다중 포맷 & 예외 처리)
-# ----------------------------------------------------
+# 4. 유튜브 CC 영상 다운로드
 print("3. 유튜브 CC 영상 다운로드 중...")
 
 cookies_content = os.environ.get("YOUTUBE_COOKIES", "")
@@ -67,61 +59,47 @@ if cookies_content.strip():
         f.write(cookies_content)
     print("  ✓ YOUTUBE_COOKIES 적용 완료!")
 
-# 여러 검색 키워드 순차 시도 (검색 결과 부재 대비)
 search_queries = [
     "ytsearch1:nature 4k relax creative commons",
     "ytsearch1:galaxy space 4k creative commons",
     "ytsearch1:ocean waves 4k creative commons"
 ]
 
-# 포맷 옵션 다각화 (포맷 미지원 에러 완벽 대비)
-format_strategies = [
-    'bestvideo+bestaudio/best',
-    'best',
-    'worst'
-]
-
 download_success = False
 
 for query in search_queries:
-    for fmt in format_strategies:
-        ydl_opts = {
-            'default_search': query,
-            'format': fmt,
-            'merge_output_format': 'mp4',
-            'outtmpl': 'background.mp4',
-            'overwrites': True,
-            'quiet': True,
-            'cookiefile': cookie_file_path if cookie_file_path else None,
-            'extractor_args': {
-                'youtube': {
-                    'player_client': ['android', 'ios', 'web'],
-                    'skip': ['hls', 'dash']
-                }
+    ydl_opts = {
+        'default_search': query,
+        'format': 'best',
+        'outtmpl': 'background.mp4',
+        'overwrites': True,
+        'quiet': True,
+        'cookiefile': cookie_file_path if cookie_file_path else None,
+        # 💡 쿠키 지원 클라이언트(mweb, web)로 지정
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['mweb', 'web']
             }
         }
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([query])
-            if os.path.exists("background.mp4") and os.path.getsize("background.mp4") > 0:
-                download_success = True
-                print(f"  ✓ 배경 영상 다운로드 성공 (전략: {fmt})")
-                break
-        except Exception as e:
-            print(f"  ⚠️ 다운로드 재시도 중... ({fmt} / {e})")
-            continue
-    if download_success:
-        break
+    }
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([query])
+        if os.path.exists("background.mp4") and os.path.getsize("background.mp4") > 0:
+            download_success = True
+            print("  ✓ 배경 영상 다운로드 성공!")
+            break
+    except Exception as e:
+        print(f"  ⚠️ 다운로드 재시도 중... ({e})")
+        continue
 
 if cookie_file_path and os.path.exists(cookie_file_path):
     os.remove(cookie_file_path)
 
 if not download_success:
-    raise Exception("❌ 영상 다운로드 실패: 모든 포맷 전략이 거부되었습니다.")
+    raise Exception("❌ 영상 다운로드 실패")
 
-# ----------------------------------------------------
 # 5. 영상 + 음성 + 자막 합성
-# ----------------------------------------------------
 print("4. 쇼츠 영상 합성 중...")
 audio = AudioFileClip("voice.mp3")
 full_video = VideoFileClip("background.mp4")
@@ -143,4 +121,4 @@ txt_clip = txt_clip.set_position('center').set_duration(audio.duration)
 final_video = CompositeVideoClip([video, txt_clip]).set_audio(audio)
 final_video.write_videofile("final_shorts.mp4", fps=24, codec='libx264', audio_codec='aac')
 
-print("✨ 모든 에러를 극복하고 쇼츠 제작 완벽 완료!")
+print("✨ 쇼츠 제작 완벽 완료!")
