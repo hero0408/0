@@ -28,8 +28,8 @@ async def generate_audio():
 
 asyncio.run(generate_audio())
 
-# 4. 클라이언트 우회 옵션이 적용된 유튜브 영상 다운로드
-print("3. 유튜브 CC 영상 다운로드 중 (우회 클라이언트 적용)...")
+# 4. 유튜브 CC 영상 다운로드 (포맷 호환성 개선)
+print("3. 유튜브 CC 영상 다운로드 중...")
 
 cookies_content = os.environ.get("YOUTUBE_COOKIES", "")
 cookie_file_path = None
@@ -42,12 +42,13 @@ if cookies_content.strip():
 
 ydl_opts = {
     'default_search': 'ytsearch1:nature 4k relax creative commons',
-    'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+    # 💡 포맷 에러 해결: 범용 고화질 스트림 및 mp4 컨테이너 자동 재인코딩
+    'format': 'bestvideo+bestaudio/best',
+    'merge_output_format': 'mp4',
     'outtmpl': 'background.mp4',
     'overwrites': True,
     'quiet': True,
     'cookiefile': cookie_file_path if cookie_file_path else None,
-    # 💡 핵심 우회 파라미터: 모바일 웹/모바일 앱 클라이언트로 위장 요청
     'extractor_args': {
         'youtube': {
             'player_client': ['android', 'ios', 'web'],
