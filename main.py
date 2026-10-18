@@ -4,7 +4,9 @@ import asyncio
 import edge_tts
 import yt_dlp
 from google import genai
-from moviepy.editor import VideoFileClip, AudioFileClip, TextClip, CompositeVideoClip
+
+# MoviePy v2.0+ 최신 임포트 규격
+from moviepy import VideoFileClip, AudioFileClip, TextClip, CompositeVideoClip
 
 # ----------------------------------------------------
 # 1. API 키 초기화
@@ -21,12 +23,11 @@ client = genai.Client(api_key=api_key)
 print("1. AI 대본 생성 중...")
 prompt = "유튜브 쇼츠용 흥미로운 상식 1가지를 15초 분량(한국어 3~4문장)으로 작성해줘. 응답은 오직 대본 내용만 출력해."
 
-# 지원 가능 최신 Flash 모델 라인업
 models_to_try = ['gemini-3.8-flash', 'gemini-3.5-flash']
 script_text = None
 
 for model_name in models_to_try:
-    for attempt in range(5):  # 지수 대기 재시도 (3, 6, 9, 12, 15초)
+    for attempt in range(5):
         try:
             print(f"  [{model_name}] 대본 요청 중... (시도 {attempt + 1}/5)")
             response = client.models.generate_content(
@@ -92,7 +93,6 @@ for query in search_queries:
             'overwrites': True,
             'quiet': True,
             'cookiefile': cookie_file_path if cookie_file_path else None,
-            # 쿠키 연동이 보장되는 모바일/웹 클라이언트 지정
             'extractor_args': {
                 'youtube': {
                     'player_client': ['mweb', 'web']
@@ -113,7 +113,6 @@ for query in search_queries:
     if download_success:
         break
 
-# 임시 쿠키 파일 안전하게 정리
 if cookie_file_path and os.path.exists(cookie_file_path):
     os.remove(cookie_file_path)
 
@@ -121,34 +120,62 @@ if not download_success:
     raise Exception("❌ 영상 다운로드 실패: 모든 대체 키워드 및 포맷 전략 실패")
 
 # ----------------------------------------------------
-# 5. 영상 + 음성 + 자막 합성 (MoviePy 메모리 최적화)
+# 5. 영상 + 음성 + 자막 합성 (MoviePy v2.0+ 호환 규격)
 # ----------------------------------------------------
 print("4. 쇼츠 영상 합성 중...")
 
 audio = AudioFileClip("voice.mp3")
 full_video = VideoFileClip("background.mp4")
 
+# v2.0 규격 대응: subclip -> subclipped
 start_time = 10 if full_video.duration > (audio.duration + 10) else 0
-video = full_video.subclip(start_time, start_time + audio.duration)
+if hasattr(full_video, "subclipped"):
+    video = full_video.subclipped(start_time, start_time + audio.duration)
+else:
+    video = full_video.subclip(start_time, start_time + audio.duration)
 
-txt_clip = TextClip(
-    script_text, 
-    fontsize=35, 
-    color='white', 
-    bg_color='black', 
-    size=(int(video.w * 0.8), None), 
-    method='caption', 
-    font='NanumGothic'
-)
-txt_clip = txt_clip.set_position('center').set_duration(audio.duration)
+# MoviePy v2.0 자막 생성 대응
+try:
+    txt_clip = TextClip(
+        text=script_text, 
+        font_size=35, 
+        color='white', 
+        bg_color='black', 
+        size=(int(video.w * 0.8), None), 
+        method='caption', 
+        font='/usr/share/fonts/truetype/nanum/NanumGothic.ttf'
+    )
+except Exception:
+    # 하위 버전/호환 파라미터 Fallback
+    txt_clip = TextClip(
+        script_text, 
+        fontsize=35, 
+        color='white', 
+        bg_color='black', 
+        size=(int(video.w * 0.8), None), 
+        method='caption', 
+        font='NanumGothic'
+    )
 
-final_video = CompositeVideoClip([video, txt_clip]).set_audio(audio)
+# v2.0 규격 대응: set_position / set_duration / set_audio
+if hasattr(txt_clip, "with_position"):
+    txt_clip = txt_clip.with_position('center').with_duration(audio.duration)
+else:
+    txt_clip = txt_clip.set_position('center').set_duration(audio.duration)
+
+final_video = CompositeVideoClip([video, txt_clip])
+
+if hasattr(final_video, "with_audio"):
+    final_video = final_video.with_audio(audio)
+else:
+    final_video = final_video.set_audio(audio)
+
 final_video.write_videofile("final_shorts.mp4", fps=24, codec='libx264', audio_codec='aac')
 
-# 메모리 누수 방지 리소스 정리
+# 메모리 정리
 audio.close()
 full_video.close()
 video.close()
 final_video.close()
 
-print("✨ 모든 장애 우회 완료 및 쇼츠 생성 성공!")
+print("✨ [성공] 모든 에러 방어 및 쇼츠 파일(final_shorts.mp4) 생성 완료!")
