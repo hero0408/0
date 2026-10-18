@@ -17,21 +17,26 @@ jobs:
     - name: 파이썬 환경 설정
       uses: actions/setup-python@v4
       with:
-        python-version: '3.10'
+        python-version: '3.11'
 
-    - name: FFmpeg(영상 처리) 설치
+    - name: FFmpeg(영상 처리) 및 한글 폰트 설치
       run: |
         sudo apt-get update
-        sudo apt-get install -y ffmpeg
+        sudo apt-get install -y ffmpeg fonts-nanum
 
     - name: 필요 라이브러리 설치
       run: |
+        pip install --upgrade pip
         pip install -r requirements.txt
 
-    - name: 1. 쇼츠 영상 자동 제작
+    - name: 1. 쇼츠 영상 자동 제작 (유튜브 CC 영상 검색)
       env:
         GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        GOOGLE_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
+        YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+        YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+        YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
       run: python main.py
 
     - name: 2. 유튜브 자동 업로드
