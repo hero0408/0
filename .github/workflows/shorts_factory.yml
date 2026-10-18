@@ -19,6 +19,11 @@ jobs:
       with:
         python-version: '3.11'
 
+    - name: Node.js 설치 (yt-dlp 자바스크립트 엔진)
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+
     - name: FFmpeg(영상 처리) 및 한글 폰트 설치
       run: |
         sudo apt-get update
