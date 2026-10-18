@@ -1,23 +1,45 @@
 import os
+import time
 import requests
 import asyncio
 import edge_tts
 import yt_dlp
 from google import genai
+from google.genai import types
 from moviepy.editor import VideoFileClip, AudioFileClip, TextClip, CompositeVideoClip
 
-# 1. API 키 설정 (Gemini 3.8 Flash)
+# 1. API 키 설정
 api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
 client = genai.Client(api_key=api_key)
 
-# 2. AI 대본 생성
+# 2. AI 대본 생성 (503 에러 대비 재시도 및 백업 모델 적용)
 print("1. AI 대본 생성 중...")
 prompt = "유튜브 쇼츠용 흥미로운 상식 1가지를 15초 분량(한국어 3~4문장)으로 작성해줘. 응답은 오직 대본 내용만 출력해."
-response = client.models.generate_content(
-    model='gemini-3.8-flash',
-    contents=prompt,
-)
-script_text = response.text.strip()
+
+models_to_try = ['gemini-3.8-flash', 'gemini-2.5-flash']
+script_text = None
+
+for model_name in models_to_try:
+    for attempt in range(3):
+        try:
+            print(f"[{model_name}] 대본 요청 중... (시도 {attempt + 1}/3)")
+            response = client.models.generate_content(
+                model=model_name,
+                contents=prompt,
+            )
+            script_text = response.text.strip()
+            if script_text:
+                break
+        except Exception as e:
+            print(f"⚠️ {model_name} 호출 중 에러 발생: {e}")
+            time.sleep(3) # 3초 대기 후 재시도
+            
+    if script_text:
+        break
+
+if not script_text:
+    raise Exception("❌ Gemini API 응답 실패: 대본을 생성하지 못했습니다.")
+
 print(f"대본: {script_text}")
 
 # 3. 음성 파일 생성 (Edge-TTS)
@@ -28,7 +50,7 @@ async def generate_audio():
 
 asyncio.run(generate_audio())
 
-# 4. 유튜브 CC 영상 다운로드 (포맷 우회 완결판)
+# 4. 유튜브 CC 영상 다운로드
 print("3. 유튜브 CC 영상 다운로드 중...")
 
 cookies_content = os.environ.get("YOUTUBE_COOKIES", "")
@@ -42,7 +64,6 @@ if cookies_content.strip():
 
 ydl_opts = {
     'default_search': 'ytsearch1:nature 4k relax creative commons',
-    # 💡 무조건 다운로드 가능한 최상위 포맷을 가져오도록 설정
     'format': 'best',
     'outtmpl': 'background.mp4',
     'overwrites': True,
