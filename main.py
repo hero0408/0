@@ -28,7 +28,7 @@ async def generate_audio():
 
 asyncio.run(generate_audio())
 
-# 4. 유튜브 CC 영상 다운로드 (포맷 호환성 개선)
+# 4. 유튜브 CC 영상 다운로드 (포맷 우회 완결판)
 print("3. 유튜브 CC 영상 다운로드 중...")
 
 cookies_content = os.environ.get("YOUTUBE_COOKIES", "")
@@ -42,9 +42,8 @@ if cookies_content.strip():
 
 ydl_opts = {
     'default_search': 'ytsearch1:nature 4k relax creative commons',
-    # 💡 포맷 에러 해결: 범용 고화질 스트림 및 mp4 컨테이너 자동 재인코딩
-    'format': 'bestvideo+bestaudio/best',
-    'merge_output_format': 'mp4',
+    # 💡 무조건 다운로드 가능한 최상위 포맷을 가져오도록 설정
+    'format': 'best',
     'outtmpl': 'background.mp4',
     'overwrites': True,
     'quiet': True,
