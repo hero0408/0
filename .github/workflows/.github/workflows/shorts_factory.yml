@@ -1,0 +1,42 @@
+name: 24/7 Shorts Factory Bot
+
+on:
+  schedule:
+    # 매일 한국 시간 오전 9시 (UTC 기준 00:00) 실행
+    - cron: '0 0 * * *'
+  workflow_dispatch: # 수동 테스트 실행 버튼
+
+jobs:
+  build-and-upload:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: 저장소 코드 불러오기
+      uses: actions/checkout@v3
+
+    - name: 파이썬 환경 설정
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+
+    - name: FFmpeg(영상 처리) 설치
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y ffmpeg
+
+    - name: 필요 라이브러리 설치
+      run: |
+        pip install -r requirements.txt
+
+    - name: 1. 쇼츠 영상 자동 제작
+      env:
+        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
+      run: python main.py
+
+    - name: 2. 유튜브 자동 업로드
+      env:
+        YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+        YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+        YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+      run: python upload_youtube.py
