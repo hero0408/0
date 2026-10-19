@@ -10,8 +10,12 @@ from dataclasses import dataclass
 
 import edge_tts
 from moviepy import VideoFileClip, ColorClip, AudioFileClip, CompositeAudioClip, concatenate_videoclips
-import moviepy.video.fx.all as vfx
-import moviepy.audio.fx.all as afx
+
+# MoviePy v2.x 최신 표준 개별 모듈 임포트 (ImportError 완벽 방어)
+from moviepy.video.fx.crossfadein import crossfadein
+from moviepy.video.fx.crossfadeout import crossfadeout
+from moviepy.audio.fx.audio_fadein import audio_fadein
+from moviepy.audio.fx.audio_fadeout import audio_fadeout
 
 from config import config
 import youtube_uploader
@@ -91,7 +95,7 @@ def generate_video_via_minimax(prompt: str, output_filepath: str):
         ColorClip(size=(config.VIDEO_WIDTH, config.VIDEO_HEIGHT), color=(15, 10, 30), duration=6.0).write_videofile(output_filepath, fps=config.FPS)
 
 # ==========================================
-# 2. Gemini 대본 생성
+# 2. Gemini 대본 생성 (안전한 JSON Parsing 정규식 포함)
 # ==========================================
 def generate_script_via_gemini(api_key: str) -> EpisodeScript:
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
@@ -104,9 +108,9 @@ def generate_script_via_gemini(api_key: str) -> EpisodeScript:
         "title_en": "The Clockwork Time Repository",
         "title_ja": "針が止まった時間保管所",
         "lines": [
-            {"character": "Ein", "text_ko": "보관소의 태엽이 다시 돌아가기 시작했어.", "text_en": "...", "text_ja": "..."},
-            {"character": "Chrono", "text_ko": "시간의 궤도를 벗어나지 않도록 주의해라.", "text_en": "...", "text_ja": "..."},
-            {"character": "Escape", "text_ko": "늦기 전에 빨리 확인하러 가자!", "text_en": "...", "text_ja": "..."}
+            {"character": "Ein", "text_ko": "보관소의 태엽이 다시 돌아가기 시작했어.", "text_en": "The mainspring started turning again.", "text_ja": "保管所のゼンマイが再び回り始めた。"},
+            {"character": "Chrono", "text_ko": "시간의 궤도를 벗어나지 않도록 주의해라.", "text_en": "Be careful not to stray off course.", "text_ja": "時間の軌道を外れないよう注意しろ。"},
+            {"character": "Escape", "text_ko": "늦기 전에 빨리 확인하러 가자!", "text_en": "Let's check before it's too late!", "text_ja": "遅れる前に早く確認しに行こう！"}
         ]
     }
     """
@@ -115,7 +119,8 @@ def generate_script_via_gemini(api_key: str) -> EpisodeScript:
     
     with urllib.request.urlopen(req) as response:
         res_data = json.loads(response.read().decode('utf-8'))
-        cleaned_text = re.sub(r"^```(?:json)?\s*|\s*```$", "", res_data['candidates'][0]['content']['parts'][0]['text'].strip(), flags=re.MULTILINE)
+        raw_text = res_data['candidates'][0]['content']['parts'][0]['text']
+        cleaned_text = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw_text.strip(), flags=re.MULTILINE)
         data = json.loads(cleaned_text)
         return EpisodeScript(title_ko=data['title_ko'], title_en=data['title_en'], title_ja=data['title_ja'], lines=[ScriptLine(**l) for l in data['lines']])
 
@@ -132,27 +137,29 @@ async def generate_tts_files(lines: List[ScriptLine]) -> List[str]:
     return audio_files
 
 # ==========================================
-# 4. MoviePy v2 합성 Engine
+# 4. MoviePy v2 합성 Engine (효과 직호출 안전화 적용)
 # ==========================================
 def render_full_episode(base_video_path: str, audio_files: List[str], output_path: str):
     opening_clip = VideoFileClip(config.OPENING_PATH)
-    opening_clip = opening_clip.subclipped(0, min(6.0, opening_clip.duration)).with_effects([vfx.crossfadein(0.5)])
+    opening_duration = min(6.0, opening_clip.duration)
+    opening_clip = opening_clip.subclipped(0, opening_duration).with_effects([crossfadein(0.5)])
     
     closing_clip = VideoFileClip(config.CLOSING_PATH)
-    closing_clip = closing_clip.subclipped(0, min(6.0, closing_clip.duration)).with_effects([vfx.crossfadeout(0.5)])
+    closing_duration = min(6.0, closing_clip.duration)
+    closing_clip = closing_clip.subclipped(0, closing_duration).with_effects([crossfadeout(0.5)])
     
     body_video = VideoFileClip(base_video_path)
     
     audio_clips = []
     current_time = 0.5
     for a_file in audio_files:
-        clip = AudioFileClip(a_file).with_effects([afx.audio_fadein(0.05), afx.audio_fadeout(0.05)]).with_start(current_time)
+        clip = AudioFileClip(a_file).with_effects([audio_fadein(0.05), audio_fadeout(0.05)]).with_start(current_time)
         audio_clips.append(clip)
         current_time += clip.duration + 0.4
         
     composite_audio = CompositeAudioClip(audio_clips)
     body_duration = max(body_video.duration, composite_audio.duration + 0.5)
-    body_video = body_video.subclipped(0, body_duration).with_audio(composite_audio)
+    body_video = body_video.subclipped(0, min(body_video.duration, body_duration)).with_audio(composite_audio)
     
     final_video = concatenate_videoclips([opening_clip, body_video, closing_clip], method="compose")
     
