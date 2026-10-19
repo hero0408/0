@@ -1,54 +1,63 @@
-name: Clockwork Time Repository Automation Pipeline
+name: Video Generation Automated Pipeline
 
 on:
-  workflow_dispatch: # GitHub Actions 탭에서 수동 실행 가능
   schedule:
-    - cron: '0 0 * * 1' # 매주 월요일 UTC 00:00 (한국 시간 오전 9시) 자동 실행
+    - cron: '0 0 * * *' # 매일 정해진 시간에 자동 실행 (필요에 따라 조정)
+  workflow_dispatch: # GitHub 웹 UI에서 수동 실행 허용
 
 jobs:
-  build-render-and-upload:
+  build-and-render:
     runs-on: ubuntu-latest
 
     steps:
-    # 1. 레포지토리 코드 체크아웃
-    - name: Checkout Repository
-      uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-    # 2. Python 3.10 환경 및 pip 캐시 설정
-    - name: Set up Python 3.10
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.10'
-        cache: 'pip'
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
 
-    # 3. 우분투 우분투 시스템 리소스 패키지(FFmpeg) 설치
-    - name: Install System Dependencies (FFmpeg)
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y ffmpeg
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
 
-    # 4. 파이썬 종속성 패키지 설치
-    - name: Install Python Dependencies
-      run: |
-        python -m pip install --upgrade pip
-        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+      - name: Install Python Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-    # 5. 애니메이션 생성 및 유튜브 비공개 자동 업로드 파이프라인 실행
-    - name: Run Animation Generation & Upload Pipeline
-      env:
-        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
-        YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
-        YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
-      run: |
-        python main.py
+      - name: Check API Keys Existence
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
+          FISH_AUDIO_API_KEY: ${{ secrets.FISH_AUDIO_API_KEY }}
+          KLING_API_KEY: ${{ secrets.KLING_API_KEY }}
+          MINIMAX_API_KEY: ${{ secrets.MINIMAX_API_KEY }}
+          LUMA_API_KEY: ${{ secrets.LUMA_API_KEY }}
+          RUNWAY_API_KEY: ${{ secrets.RUNWAY_API_KEY }}
+        run: |
+          python -c "
+          import os
+          keys = ['GEMINI_API_KEY', 'ELEVENLABS_API_KEY', 'FISH_AUDIO_API_KEY', 'KLING_API_KEY', 'MINIMAX_API_KEY', 'LUMA_API_KEY', 'RUNWAY_API_KEY']
+          print('=== [Secrets 주입 상태 점검] ===')
+          for k in keys:
+              status = 'LOADED' if os.environ.get(k) else 'MISSING'
+              print(f'{k}: {status}')
+          "
 
-    # 6. 생성된 최종 영상 및 메타데이터 결과물 백업 저장
-    - name: Upload Artifacts
-      uses: actions/upload-artifact@v4
-      if: always() # 실패하더라도 생성된 로그/파일 확인 가능하도록 설정
-      with:
-        name: output-video-artifacts
-        path: |
-          output_*.mp4
-          metadata.json
+      - name: Run Main Video Pipeline
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
+          FISH_AUDIO_API_KEY: ${{ secrets.FISH_AUDIO_API_KEY }}
+          KLING_API_KEY: ${{ secrets.KLING_API_KEY }}
+          MINIMAX_API_KEY: ${{ secrets.MINIMAX_API_KEY }}
+          LUMA_API_KEY: ${{ secrets.LUMA_API_KEY }}
+          RUNWAY_API_KEY: ${{ secrets.RUNWAY_API_KEY }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+        run: python main.py
