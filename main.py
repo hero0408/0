@@ -12,11 +12,11 @@ from config import GEMINI_API_KEY, MINIMAX_API_KEY, PIXABAY_API_KEY, BGM_PATH, V
 from prompts import build_system_prompt_for_script
 
 # ============================================================
-# 1. Gemini AI 대본 생성 (자동 재시도 및 로깅 강화)
+# 1. Gemini AI 대본 생성 (URL 및 예외 처리 수정)
 # ============================================================
 def generate_script(season: int, episode: int, max_retries: int = 3) -> dict:
     prompt_text = build_system_prompt_for_script(season, episode)
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+    url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
     headers = {"Content-Type": "application/json"}
     payload = {
         "contents": [{"parts": [{"text": prompt_text}]}],
@@ -73,7 +73,6 @@ def generate_video_file(prompt: str, output_name: str, max_retries: int = 2) -> 
             print(f"⚠️ {output_name} 생성 시도 {attempt + 1} 실패: {e}")
             time.sleep(2)
 
-    # 백업 다운로드 로직
     try:
         print(f"🔄 {output_name} Pixabay 백업 소스 다운로드 전환")
         fb_url = f"https://pixabay.com/api/videos/?key={PIXABAY_API_KEY}&q=clockwork+fantasy&orientation=vertical"
@@ -86,7 +85,7 @@ def generate_video_file(prompt: str, output_name: str, max_retries: int = 2) -> 
             print(f"✅ 백업 비디오 다운로드 완료: {output_name}")
             return output_name
     except Exception as e:
-        print(f"❌ 백업 영상 다운로드도 실패했습니다: {e}")
+        print(f"❌ 백업 영상 다운로드 실패: {e}")
 
     return output_name
 
@@ -154,12 +153,10 @@ def build_multi_track_bgm(main_bgm_path: str, sub_bgm_path: str, scene_timings: 
     sub_file = sub_bgm_path if os.path.exists(sub_bgm_path) else main_bgm_path
     sub_bgm = AudioFileClip(sub_file) if os.path.exists(sub_file) else None
 
-    # 오프닝 5초 BGM (볼륨 30%)
     if main_bgm:
         open_audio = main_bgm.with_section((0, min(5.0, main_bgm.duration))).with_start(0.0).with_volume_scaling(0.30)
         audio_tracks.append(open_audio)
 
-    # 씬별 BGM (하이라이트 vs 서브 BGM)
     for timing in scene_timings:
         start_t = timing["start"] + 5.0
         end_t = timing["end"] + 5.0
@@ -174,7 +171,6 @@ def build_multi_track_bgm(main_bgm_path: str, sub_bgm_path: str, scene_timings: 
             clip = sub_bgm.with_section((sub_offset, sub_offset + dur)).with_start(start_t).with_volume_scaling(0.08)
             audio_tracks.append(clip)
 
-    # 클로징 5초 BGM (볼륨 30%)
     closing_start_t = total_scene_duration + 5.0
     if main_bgm:
         close_audio = main_bgm.with_section((0, min(5.0, main_bgm.duration))).with_start(closing_start_t).with_volume_scaling(0.30)
@@ -183,28 +179,26 @@ def build_multi_track_bgm(main_bgm_path: str, sub_bgm_path: str, scene_timings: 
     return CompositeAudioClip(audio_tracks) if audio_tracks else None
 
 # ============================================================
-# 6. 최종 비디오/오디오 결합 및 파일 저장
+# 6. 최종 비디오/오디오 결합 및 파일 저장 (MoviePy v2 메서드 적용)
 # ============================================================
 def build_final_episode(season: int, episode: int, script_data: dict, audio_clips: list, scene_timings: list, total_scene_duration: float):
     print("🎞️ 오프닝-본문-클로징 및 오디오 최종 인코딩 합성 중...")
     video_clips = []
 
-    # AI 오프닝 (5초)
+    # MoviePy v2 대응: subclip -> subclipped 사용
     generate_video_file(script_data.get("opening_prompt"), "opening.mp4")
     if os.path.exists("opening.mp4"):
-        video_clips.append(VideoFileClip("opening.mp4").subclip(0, 5))
+        video_clips.append(VideoFileClip("opening.mp4").subclipped(0, 5))
 
-    # 본문 씬 결합
     for idx in range(len(script_data["scenes"])):
         fpath = f"scene_{idx + 1}.mp4"
         if os.path.exists(fpath):
             clip = VideoFileClip(fpath).crossfadein(0.5).crossfadeout(0.5)
             video_clips.append(clip)
 
-    # AI 클로징 (5초)
     generate_video_file(script_data.get("ending_prompt"), "ending.mp4")
     if os.path.exists("ending.mp4"):
-        video_clips.append(VideoFileClip("ending.mp4").subclip(0, 5))
+        video_clips.append(VideoFileClip("ending.mp4").subclipped(0, 5))
 
     if not video_clips:
         raise RuntimeError("❌ 인코딩할 비디오 클립 파일이 전혀 존재하지 않습니다.")
@@ -249,7 +243,7 @@ def run_pipeline(season: int = 1, episode: int = 1):
     build_final_episode(season, episode, script_data, audio_clips, scene_timings, total_duration)
 
 # ============================================================
-# 8. 메인 진입점 (명시적 에러 로깅 처리)
+# 8. 메인 진입점
 # ============================================================
 if __name__ == "__main__":
     try:
@@ -263,4 +257,4 @@ if __name__ == "__main__":
         print("❌ [Fatal Error] 메인 파이프라인 구동 중 심각한 오류 발생:")
         print(err)
         traceback.print_exc()
-        sys.exit(1) # GitHub Actions에 명시적 실패 상태 전달
+        sys.exit(1)
