@@ -9,10 +9,9 @@ from typing import List
 from dataclasses import dataclass
 
 import edge_tts
-# MoviePy v2 최신 호환 임포트 (모듈 임포트 에러 완벽 차단)
 from moviepy import VideoFileClip, ColorClip, AudioFileClip, CompositeAudioClip, concatenate_videoclips
-from moviepy.video.fx import crossfadein, crossfadeout
-from moviepy.audio.fx import audio_fadein, audio_fadeout
+import moviepy.video.fx.all as vfx
+import moviepy.audio.fx.all as afx
 
 from config import config
 import youtube_uploader
@@ -64,7 +63,7 @@ def ensure_season_intro_outro():
 
 def generate_video_via_minimax(prompt: str, output_filepath: str):
     minimax_key = os.environ.get("MINIMAX_API_KEY")
-    url = "[https://api.minimax.chat/v1/video_generation](https://api.minimax.chat/v1/video_generation)"
+    url = "https://api.minimax.chat/v1/video_generation"
     headers = {"Authorization": f"Bearer {minimax_key}", "Content-Type": "application/json"}
     payload = {"prompt": prompt, "model": "video-01", "aspect_ratio": "9:16"}
 
@@ -74,7 +73,7 @@ def generate_video_via_minimax(prompt: str, output_filepath: str):
             res = json.loads(response.read().decode('utf-8'))
             task_id = res.get("task_id")
             
-        query_url = f"[https://api.minimax.chat/v1/query/video_generation?task_id=](https://api.minimax.chat/v1/query/video_generation?task_id=){task_id}"
+        query_url = f"https://api.minimax.chat/v1/query/video_generation?task_id={task_id}"
         while True:
             time.sleep(5)
             q_req = urllib.request.Request(query_url, headers=headers, method='GET')
@@ -92,10 +91,10 @@ def generate_video_via_minimax(prompt: str, output_filepath: str):
         ColorClip(size=(config.VIDEO_WIDTH, config.VIDEO_HEIGHT), color=(15, 10, 30), duration=6.0).write_videofile(output_filepath, fps=config.FPS)
 
 # ==========================================
-# 2. Gemini 대본 생성 (Structured JSON 예외 방어)
+# 2. Gemini 대본 생성
 # ==========================================
 def generate_script_via_gemini(api_key: str) -> EpisodeScript:
-    url = f"[https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=](https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=){api_key}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
     prompt = """
     Create a short 3D animation script for 'The Clockwork Time Repository'.
     Characters: Ein (Silver Fox), Chrono (Tiger), Escape (Rabbit).
@@ -137,17 +136,17 @@ async def generate_tts_files(lines: List[ScriptLine]) -> List[str]:
 # ==========================================
 def render_full_episode(base_video_path: str, audio_files: List[str], output_path: str):
     opening_clip = VideoFileClip(config.OPENING_PATH)
-    opening_clip = opening_clip.subclipped(0, min(6.0, opening_clip.duration)).with_effects([crossfadein(0.5)])
+    opening_clip = opening_clip.subclipped(0, min(6.0, opening_clip.duration)).with_effects([vfx.crossfadein(0.5)])
     
     closing_clip = VideoFileClip(config.CLOSING_PATH)
-    closing_clip = closing_clip.subclipped(0, min(6.0, closing_clip.duration)).with_effects([crossfadeout(0.5)])
+    closing_clip = closing_clip.subclipped(0, min(6.0, closing_clip.duration)).with_effects([vfx.crossfadeout(0.5)])
     
     body_video = VideoFileClip(base_video_path)
     
     audio_clips = []
     current_time = 0.5
     for a_file in audio_files:
-        clip = AudioFileClip(a_file).with_effects([audio_fadein(0.05), audio_fadeout(0.05)]).with_start(current_time)
+        clip = AudioFileClip(a_file).with_effects([afx.audio_fadein(0.05), afx.audio_fadeout(0.05)]).with_start(current_time)
         audio_clips.append(clip)
         current_time += clip.duration + 0.4
         
