@@ -35,14 +35,14 @@ class EpisodeScript:
     lines: List[ScriptLine]
 
 # ==========================================
-# 0. 캐릭터별 고품질 성우 엔진 매핑
+# 0. 캐릭터별 전용 성우 및 백업 엔진 설정
 # ==========================================
 ELEVENLABS_VOICES = {
-    "Ein": "21m00Tcm4TlvDq8ikWAM",     # 주인공 여우 (감정 연기)
-    "Chrono": "VR6AewLTigWG4xT1s5nU"   # 주인공 호랑이 (감정 연기)
+    "Ein": "21m00Tcm4TlvDq8ikWAM",     # 주인공 아인 (감정 연기)
+    "Chrono": "VR6AewLTigWG4xT1s5nU"   # 주요 인물 크로노 (감정 연기)
 }
 
-FISH_AUDIO_VOICE_ID = "7f92f8efb88f4b26a11751d2f99d6512" # 나레이션 전용 고품질 성우 ID
+FISH_AUDIO_VOICE_ID = "7f92f8efb88f4b26a11751d2f99d6512" # 나레이터 전용 성우 ID
 
 EDGE_TTS_CONFIG = {
     "Escape": {"voice": "ko-KR-HyunsuNeural", "pitch": "+22Hz", "rate": "+15%"}, # 서브 캐릭터
@@ -50,7 +50,7 @@ EDGE_TTS_CONFIG = {
 }
 
 # ==========================================
-# 1. API별 음성 합성 함수 (ElevenLabs / Fish Audio)
+# 1. API별 음성 합성 함수 (ElevenLabs / Fish Audio / Edge-TTS)
 # ==========================================
 def generate_elevenlabs_voice(voice_id: str, text: str, output_path: str, api_key: str):
     url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
@@ -94,7 +94,7 @@ async def generate_tts_files(lines: List[ScriptLine]) -> List[str]:
         if line.character == "Narrator" and fish_key:
             try:
                 generate_fish_audio_voice(line.text_ko, output_file, fish_key)
-                logger.info(f"[{line.character}] Fish Audio 나레이션 생성 완료")
+                logger.info(f"[{line.character}] Fish Audio 나레이션 음성 생성 완료")
                 success = True
             except Exception as e:
                 logger.warning(f"Fish Audio 실패 ({e}), 백업 엔진으로 전환합니다.")
@@ -197,51 +197,51 @@ def ensure_season_intro_outro():
         generate_scene_video("A 6-second high-end cinematic 3D animation closing scene. Slow pan-out from the glowing clocktower to starry night sky, magical embers fading out peacefully.", config.CLOSING_PATH)
 
 # ==========================================
-# 3. 여운이 남는 철학적 대본 생성 (Gemini)
+# 3. 여운과 몰입감을 주는 대본 프롬프트 (Gemini)
 # ==========================================
 def generate_script_via_gemini(api_key: str) -> EpisodeScript:
     models = ["gemini-1.5-flash", "gemini-2.0-flash"]
     prompt = """
-    Create a thoughtful, philosophical 3D animation script for 'The Clockwork Time Repository'.
+    Create a thoughtful, narrative-driven 3D animation script for 'The Clockwork Time Repository'.
     
-    STORYTELLING PHILOSOPHY:
-    - Do NOT preach or give simple answers to the audience.
-    - Ask poetic questions that make viewers think about time, memories, and choices.
-    - Leave an open ending that encourages viewers to share their thoughts in comments.
+    STORYTELLING GUIDELINES:
+    - Provide a complete narrative arc (beginning, conflict, decision, and resolution).
+    - Do NOT preach, give moral lessons, or explain what the audience should feel.
+    - Let the characters make clear choices in their situation, leaving room for the audience to reflect on the meaning through their own life experiences.
 
     Return JSON ONLY:
     {
-        "title_ko": "버려진 시간들의 무게",
-        "title_en": "The Weight of Abandoned Time",
-        "title_ja": "捨てられた時間の重さ",
+        "title_ko": "멈춰버린 태엽과 마지막 순간",
+        "title_en": "The Stopped Mainspring and the Final Moment",
+        "title_ja": "止まったゼンマイと最後の瞬間",
         "lines": [
             {
                 "character": "Narrator",
-                "text_ko": "사람들이 잊어버리고 지나간 순간들은 다 어디로 흘러가는 걸까요?",
-                "text_en": "Where do all the moments people forget and pass by flow to?",
-                "text_ja": "忘れられた瞬間はどこへ行くのか。",
-                "video_prompt": "3D animation, A mysterious gothic clocktower floating in a starry cosmic void, glowing hour glasses, philosophical atmosphere, masterpiece"
+                "text_ko": "보관소 가장 깊은 곳, 누군가 가장 소중히 여겼던 '어느 날의 10분'이 담긴 태엽이 멈추려 합니다.",
+                "text_en": "Deep inside the repository, a mainspring holding someone's most treasured '10 minutes' is about to stop.",
+                "text_ja": "保管所の奥深く、誰かの大切な『ある日の10分』のゼンマイが止まろう meしています。",
+                "video_prompt": "3D animation, A delicate glowing clockwork heart slowing down inside a grand gothic clocktower, golden dust particles, highly emotional atmosphere, masterpiece"
             },
             {
                 "character": "Ein",
-                "text_ko": "흐르지 않는 시간을 간직하는 건... 과연 축복일까, 아니면 짐일까?",
-                "text_en": "Is holding onto time that doesn't flow a blessing... or a burden?",
-                "text_ja": "流れない時間を秘めるのは祝福か、重荷か。",
-                "video_prompt": "3D animation, Silver fox Ein holding a glowing crystal pendulum, gazing pensively into the distance, soft lighting"
+                "text_ko": "이 태엽을 다시 감으면 기억은 영원히 남겠지만... 새로운 시간은 흐르지 않아.",
+                "text_en": "If we wind this mainspring again, the memory stays forever... but new time won't flow.",
+                "text_ja": "このゼンマイを巻けば記憶は残るけれど、新しい時間は流れない。",
+                "video_prompt": "3D animation, Silver fox Ein holding a glowing crystal key near the clockwork heart, looking conflicted with gentle eyes, warm cinematic lighting"
             },
             {
                 "character": "Chrono",
-                "text_ko": "흘러가는 것은 사라지는 게 아니다. 그저 다른 모양이 될 뿐이지.",
-                "text_en": "What passes away does not disappear. It simply takes a different shape.",
-                "text_ja": "流れ去るものは消えるのではない。形を変えるだけだ。",
-                "video_prompt": "3D animation, Brave tiger Chrono standing near massive turning gears, warm flickering lantern light"
+                "text_ko": "손을 놓는 것도, 다시 태엽을 감는 것도... 결국 온전히 그의 몫이었지.",
+                "text_en": "Letting go or winding it back up... in the end, it was entirely their choice.",
+                "text_ja": "手を放すことも、再び巻くことも... 全ては彼自身の 선택이었어.",
+                "video_prompt": "3D animation, Brave tiger Chrono standing solemnly beside giant turning gears, warm lantern light, calm and deep atmosphere"
             },
             {
                 "character": "Narrator",
-                "text_ko": "오늘 당신이 스쳐 보낸 1초는, 어떤 모양으로 남아있나요?",
-                "text_en": "What shape does the single second you passed by today leave behind?",
-                "text_ja": "今日あなたが通り 지나친 1秒は、どんな形になりましたか。",
-                "video_prompt": "3D animation, Cinematic pan-out of clocktower under a quiet night sky with magical glowing embers fading away"
+                "text_ko": "태엽은 조용히 멈추었고, 그 자리엔 작지만 따뜻한 빛이 피어올랐습니다.",
+                "text_en": "The mainspring quietly stopped, and in its place, a small but warm light bloomed.",
+                "text_ja": "ゼンマイは quiet に止まり、そこには小さくも温かい光が咲き誇りました。",
+                "video_prompt": "3D animation, A peaceful pan-out of the clocktower window as a warm soft light spreads out under a starry night sky, high-end 3D visual"
             }
         ]
     }
@@ -270,14 +270,14 @@ def get_script_with_fallback() -> EpisodeScript:
             logger.warning(f"Gemini 대본 생성 실패: {e}")
 
     return EpisodeScript(
-        title_ko="버려진 시간들의 무게",
-        title_en="The Weight of Abandoned Time",
-        title_ja="捨てられた時間の重さ",
+        title_ko="멈춰버린 태엽과 마지막 순간",
+        title_en="The Stopped Mainspring and the Final Moment",
+        title_ja="止まったゼンマイと最後の瞬間",
         lines=[
-            ScriptLine(character="Narrator", text_ko="사람들이 잊어버리고 지나간 순간들은 다 어디로 흘러가는 걸까요?", text_en="Where do moments go?", text_ja="Where do moments go?", video_prompt="3D animation, Gothic clocktower floating in space"),
-            ScriptLine(character="Ein", text_ko="흐르지 않는 시간을 간직하는 건... 축복일까, 짐일까?", text_en="Blessing or burden?", text_ja="Blessing or burden?", video_prompt="3D animation, Silver fox Ein holding glowing crystal"),
-            ScriptLine(character="Chrono", text_ko="흘러가는 것은 사라지는 게 아니다. 모양이 바뀔 뿐이지.", text_en="It just changes shape.", text_ja="It changes shape.", video_prompt="3D animation, Tiger Chrono near massive gears"),
-            ScriptLine(character="Narrator", text_ko="오늘 당신이 스쳐 보낸 1초는, 어떤 모양으로 남아있나요?", text_en="What shape remains?", text_ja="What shape remains?", video_prompt="3D animation, Clocktower under night sky")
+            ScriptLine(character="Narrator", text_ko="보관소 가장 깊은 곳, 누군가 소중히 여겼던 태엽이 멈추려 합니다.", text_en="A mainspring is about to stop.", text_ja="ゼンマイが止まろう me step.", video_prompt="3D animation, Clockwork heart slowing down inside clocktower"),
+            ScriptLine(character="Ein", text_ko="이 태엽을 다시 감으면 기억은 남겠지만... 새로운 시간은 흐르지 않아.", text_en="New time won't flow.", text_ja="新しい時間は流れない。", video_prompt="3D animation, Silver fox Ein holding glowing key near clockwork"),
+            ScriptLine(character="Chrono", text_ko="손을 놓는 것도, 다시 감는 것도... 온전히 그의 몫이었지.", text_en="It was entirely their choice.", text_ja="全ては彼自身の choices.", video_prompt="3D animation, Tiger Chrono standing near turning gears"),
+            ScriptLine(character="Narrator", text_ko="태엽은 조용히 멈추었고, 그 자리엔 작지만 따뜻한 빛이 피어올랐습니다.", text_en="A warm light bloomed.", text_ja="温かい光が咲きました。", video_prompt="3D animation, Warm light spreading under starry night sky")
         ]
     )
 
@@ -340,7 +340,7 @@ async def async_main():
     logger.info("[1/5] 오프닝/클로징 검사...")
     ensure_season_intro_outro()
 
-    logger.info("[2/5] 여운 있는 대본 생성...")
+    logger.info("[2/5] 기승전결 서사 대본 생성...")
     script = get_script_with_fallback()
 
     with open(config.METADATA_PATH, "w", encoding="utf-8") as f:
@@ -349,7 +349,7 @@ async def async_main():
     logger.info("[3/5] 다중 성우 API 음성 생성...")
     audio_files = await generate_tts_files(script.lines)
 
-    logger.info("[4/5] 대사별 AI 영상 생성 및 합성...")
+    logger.info("[4/5] 대사별 AI 영상 생성 및 멀티 씬 합성...")
     render_full_episode_multi_scene(script.lines, audio_files, config.OUTPUT_VIDEO_PATH)
 
     for af in audio_files:
@@ -360,7 +360,7 @@ async def async_main():
     if config.YOUTUBE_REFRESH_TOKEN:
         youtube_uploader.upload_private_video(config.OUTPUT_VIDEO_PATH)
 
-    logger.info("파이프라인 실행 완벽 성공!")
+    logger.info("파이프라인 실행 완료!")
 
 if __name__ == "__main__":
     asyncio.run(async_main())
