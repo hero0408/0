@@ -1,6 +1,7 @@
 import os
 import re
 import json
+import time
 import asyncio
 import logging
 import urllib.request
@@ -8,7 +9,6 @@ from typing import List
 from dataclasses import dataclass
 
 import edge_tts
-# MoviePy v2 최신 호환 서브모듈 직접 임포트
 from moviepy.VideoClip import VideoFileClip, ColorClip
 from moviepy.AudioClip import AudioFileClip, CompositeAudioClip
 from moviepy.video.compositing.concatenate import concatenate_videoclips
@@ -36,14 +36,77 @@ class EpisodeScript:
     lines: List[ScriptLine]
 
 # ==========================================
-# 1. Gemini REST API (Structured JSON 대본 생성)
+# 1. 시즌용 고정 오프닝/클로징 검사 및 필요시에만 최초 1회 생성
+# ==========================================
+def ensure_season_intro_outro():
+    """
+    오프닝(opening.mp4)과 클로징(closing.mp4) 파일이 이미 존재하면 
+    MiniMax API를 절대로 호출하지 않고 기존 고정 파일을 재사용합니다. (토큰 낭비 0%)
+    """
+    minimax_key = os.environ.get("MINIMAX_API_KEY")
+
+    # [오프닝 파일 검사 및 최초 1회 생성]
+    if not os.path.exists(config.OPENING_PATH):
+        logger.info("시즌 오프닝 파일이 없어 최초 1회 자동 생성을 진행합니다.")
+        if minimax_key:
+            prompt_op = "A 6-second high-end cinematic 3D animation opening of a gothic clocktower with glowing clockwork gears under a starry night sky with full moon. Golden light, masterpiece, hyper-detailed."
+            generate_video_via_minimax(prompt_op, config.OPENING_PATH)
+        else:
+            logger.warning("MINIMAX_API_KEY가 없어 단색 임시 오프닝을 생성합니다.")
+            ColorClip(size=(config.VIDEO_WIDTH, config.VIDEO_HEIGHT), color=(15, 10, 30), duration=6.0).write_videofile(config.OPENING_PATH, fps=config.FPS)
+    else:
+        logger.info("기존 시즌 오프닝(opening.mp4)을 재사용합니다. (API 호출 건너뜀)")
+
+    # [클로징 파일 검사 및 최초 1회 생성]
+    if not os.path.exists(config.CLOSING_PATH):
+        logger.info("시즌 클로징 파일이 없어 최초 1회 자동 생성을 진행합니다.")
+        if minimax_key:
+            prompt_cl = "A 6-second high-end cinematic 3D animation closing scene. Slow pan-out from the glowing clocktower to starry night sky, magical embers fading out peacefully."
+            generate_video_via_minimax(prompt_cl, config.CLOSING_PATH)
+        else:
+            logger.warning("MINIMAX_API_KEY가 없어 단색 임시 클로징을 생성합니다.")
+            ColorClip(size=(config.VIDEO_WIDTH, config.VIDEO_HEIGHT), color=(10, 10, 20), duration=6.0).write_videofile(config.CLOSING_PATH, fps=config.FPS)
+    else:
+        logger.info("기존 시즌 클로징(closing.mp4)을 재사용합니다. (API 호출 건너뜀)")
+
+def generate_video_via_minimax(prompt: str, output_filepath: str):
+    minimax_key = os.environ.get("MINIMAX_API_KEY")
+    url = "https://api.minimax.chat/v1/video_generation"
+    headers = {"Authorization": f"Bearer {minimax_key}", "Content-Type": "application/json"}
+    payload = {"prompt": prompt, "model": "video-01", "aspect_ratio": "9:16"}
+
+    try:
+        req = urllib.request.Request(url, data=json.dumps(payload).encode('utf-8'), headers=headers, method='POST')
+        with urllib.request.urlopen(req) as response:
+            res = json.loads(response.read().decode('utf-8'))
+            task_id = res.get("task_id")
+            
+        query_url = f"https://api.minimax.chat/v1/query/video_generation?task_id={task_id}"
+        while True:
+            time.sleep(5)
+            q_req = urllib.request.Request(query_url, headers=headers, method='GET')
+            with urllib.request.urlopen(q_req) as q_res:
+                q_data = json.loads(q_res.read().decode('utf-8'))
+                if q_data.get("status") == "Success":
+                    file_url = q_data.get("file_url")
+                    urllib.request.urlretrieve(file_url, output_filepath)
+                    logger.info(f"시즌 에셋 비디오 생성 완료: {output_filepath}")
+                    break
+                elif q_data.get("status") in ["Fail", "Unknown"]:
+                    raise Exception("Video generation failed")
+    except Exception as e:
+        logger.error(f"비디오 생성 예외 발생: {e}")
+        ColorClip(size=(config.VIDEO_WIDTH, config.VIDEO_HEIGHT), color=(15, 10, 30), duration=6.0).write_videofile(output_filepath, fps=config.FPS)
+
+# ==========================================
+# 2. Gemini 대본 생성
 # ==========================================
 def generate_script_via_gemini(api_key: str) -> EpisodeScript:
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
     prompt = """
     Create a short 3D animation script for 'The Clockwork Time Repository'.
     Characters: Ein (Silver Fox), Chrono (Tiger), Escape (Rabbit).
-    Generate JSON with the exact following schema:
+    Return JSON ONLY:
     {
         "title_ko": "시침이 멈춘 시간 보관소",
         "title_en": "The Clockwork Time Repository",
@@ -54,35 +117,18 @@ def generate_script_via_gemini(api_key: str) -> EpisodeScript:
             {"character": "Escape", "text_ko": "늦기 전에 빨리 확인하러 가자!", "text_en": "...", "text_ja": "..."}
         ]
     }
-    Generate exactly 3 lines of dialogue. Return raw valid JSON ONLY.
     """
-    payload = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"response_mime_type": "application/json"}
-    }
-    
-    req = urllib.request.Request(
-        url,
-        data=json.dumps(payload).encode('utf-8'),
-        headers={'Content-Type': 'application/json'},
-        method='POST'
-    )
+    payload = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"response_mime_type": "application/json"}}
+    req = urllib.request.Request(url, data=json.dumps(payload).encode('utf-8'), headers={'Content-Type': 'application/json'}, method='POST')
     
     with urllib.request.urlopen(req) as response:
         res_data = json.loads(response.read().decode('utf-8'))
-        raw_text = res_data['candidates'][0]['content']['parts'][0]['text']
-        cleaned_text = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw_text.strip(), flags=re.MULTILINE)
+        cleaned_text = re.sub(r"^```(?:json)?\s*|\s*```$", "", res_data['candidates'][0]['content']['parts'][0]['text'].strip(), flags=re.MULTILINE)
         data = json.loads(cleaned_text)
-        
-        return EpisodeScript(
-            title_ko=data['title_ko'],
-            title_en=data['title_en'],
-            title_ja=data['title_ja'],
-            lines=[ScriptLine(**l) for l in data['lines']]
-        )
+        return EpisodeScript(title_ko=data['title_ko'], title_en=data['title_en'], title_ja=data['title_ja'], lines=[ScriptLine(**l) for l in data['lines']])
 
 # ==========================================
-# 2. Edge-TTS 음성 동기 합성
+# 3. Edge-TTS 음성 생성
 # ==========================================
 async def generate_tts_files(lines: List[ScriptLine]) -> List[str]:
     audio_files = []
@@ -94,23 +140,17 @@ async def generate_tts_files(lines: List[ScriptLine]) -> List[str]:
     return audio_files
 
 # ==========================================
-# 3. MoviePy v2 영상/음성 렌더링 Engine
+# 4. MoviePy v2 합성 Engine (시즌 오프닝/클로징 + 본문)
 # ==========================================
 def render_full_episode(base_video_path: str, audio_files: List[str], output_path: str):
-    # 1) 오프닝 / 클로징 가공 (파일 미존재 시 자가 복구)
-    if not os.path.exists(config.OPENING_PATH):
-        logger.warning(f"{config.OPENING_PATH} 파일이 없어 더미 오프닝을 생성합니다.")
-        ColorClip(size=(config.VIDEO_WIDTH, config.VIDEO_HEIGHT), color=(15, 10, 30), duration=3.0).write_videofile(config.OPENING_PATH, fps=config.FPS)
-    if not os.path.exists(config.CLOSING_PATH):
-        logger.warning(f"{config.CLOSING_PATH} 파일이 없어 더미 클로징을 생성합니다.")
-        ColorClip(size=(config.VIDEO_WIDTH, config.VIDEO_HEIGHT), color=(10, 10, 20), duration=3.0).write_videofile(config.CLOSING_PATH, fps=config.FPS)
-
-    opening_clip = VideoFileClip(config.OPENING_PATH).subclipped(0, 3.0).with_effects([CrossFadeIn(0.5)])
-    closing_clip = VideoFileClip(config.CLOSING_PATH).subclipped(0, 3.0).with_effects([CrossFadeOut(0.5)])
+    opening_clip = VideoFileClip(config.OPENING_PATH)
+    opening_clip = opening_clip.subclipped(0, min(6.0, opening_clip.duration)).with_effects([CrossFadeIn(0.5)])
+    
+    closing_clip = VideoFileClip(config.CLOSING_PATH)
+    closing_clip = closing_clip.subclipped(0, min(6.0, closing_clip.duration)).with_effects([CrossFadeOut(0.5)])
     
     body_video = VideoFileClip(base_video_path)
     
-    # 2) 대사 오디오 트랙 타임라인 정렬 및 사운드 페이드 효과
     audio_clips = []
     current_time = 0.5
     for a_file in audio_files:
@@ -119,15 +159,11 @@ def render_full_episode(base_video_path: str, audio_files: List[str], output_pat
         current_time += clip.duration + 0.4
         
     composite_audio = CompositeAudioClip(audio_clips)
-    
-    # 3) 본문 영상 동기화
     body_duration = max(body_video.duration, composite_audio.duration + 0.5)
     body_video = body_video.subclipped(0, body_duration).with_audio(composite_audio)
     
-    # 4) 오프닝 + 본문 + 클로징 시퀀스 연결
     final_video = concatenate_videoclips([opening_clip, body_video, closing_clip], method="compose")
     
-    # 5) 최종 파일 인코딩
     final_video.write_videofile(
         output_path,
         fps=config.FPS,
@@ -138,7 +174,6 @@ def render_full_episode(base_video_path: str, audio_files: List[str], output_pat
         threads=4
     )
     
-    # 6) 메모리 명시적 해제
     opening_clip.close()
     closing_clip.close()
     body_video.close()
@@ -148,40 +183,37 @@ def render_full_episode(base_video_path: str, audio_files: List[str], output_pat
     final_video.close()
 
 # ==========================================
-# 4. 파이프라인 메인 실행 루틴
+# 5. 파이프라인 메인 실행
 # ==========================================
 async def async_main():
     if not config.GEMINI_API_KEY:
         raise ValueError("GEMINI_API_KEY가 설정되지 않았습니다.")
         
-    logger.info("[1/4] Gemini REST API로 대본 생성 중...")
+    logger.info("[1/5] 시즌 고정 오프닝/클로징 검사...")
+    ensure_season_intro_outro()
+
+    logger.info("[2/5] Gemini 대본 생성...")
     script = generate_script_via_gemini(config.GEMINI_API_KEY)
     
     with open(config.METADATA_PATH, "w", encoding="utf-8") as f:
-        json.dump({"title_ko": script.title_ko, "title_en": script.title_en, "title_ja": script.title_ja}, f, ensure_ascii=False, indent=2)
+        json.dump({"title_ko": script.title_ko}, f, ensure_ascii=False, indent=2)
 
     if not os.path.exists(config.BASE_VIDEO_PATH):
-        logger.warning(f"{config.BASE_VIDEO_PATH}가 존재하지 않아 플레이스홀더 영상을 생성합니다.")
-        color_clip = ColorClip(size=(config.VIDEO_WIDTH, config.VIDEO_HEIGHT), color=(20, 20, 35), duration=10.0)
-        color_clip.write_videofile(config.BASE_VIDEO_PATH, fps=config.FPS)
-        color_clip.close()
+        ColorClip(size=(config.VIDEO_WIDTH, config.VIDEO_HEIGHT), color=(20, 20, 35), duration=10.0).write_videofile(config.BASE_VIDEO_PATH, fps=config.FPS)
 
-    logger.info("[2/4] Edge-TTS 캐릭터 음성 생성 중...")
+    logger.info("[3/5] TTS 음성 생성...")
     audio_files = await generate_tts_files(script.lines)
     
-    logger.info(f"[3/4] MoviePy v2 기반 영상 합성 및 렌더링 시작 ({config.OUTPUT_VIDEO_PATH})...")
+    logger.info("[4/5] 시즌 오프닝 + 본문 + 시즌 클로징 합성...")
     render_full_episode(config.BASE_VIDEO_PATH, audio_files, config.OUTPUT_VIDEO_PATH)
     
-    # 임시 TTS 파일 정제
     for af in audio_files:
         if os.path.exists(af):
             os.remove(af)
 
-    logger.info("[4/4] YouTube Data API v3 자동 비공개 업로드 실행...")
+    logger.info("[5/5] YouTube 비공개 업로드...")
     if config.YOUTUBE_REFRESH_TOKEN:
         youtube_uploader.upload_private_video(config.OUTPUT_VIDEO_PATH)
-    else:
-        logger.warning("YOUTUBE_REFRESH_TOKEN이 입력되지 않아 유튜브 업로드를 건너뜁니다.")
 
     logger.info("파이프라인 실행 완료!")
 
