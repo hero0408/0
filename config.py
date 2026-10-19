@@ -1,16 +1,31 @@
 import os
+from dataclasses import dataclass
 
-# API 키 세팅
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "YOUR_GEMINI_API_KEY")
-MINIMAX_API_KEY = os.getenv("MINIMAX_API_KEY", "YOUR_MINIMAX_API_KEY")
-PIXABAY_API_KEY = os.getenv("PIXABAY_API_KEY", "YOUR_PIXABAY_API_KEY")
+@dataclass(frozen=True)
+class Config:
+    # API Keys & Credentials
+    GEMINI_API_KEY: str = os.environ.get("GEMINI_API_KEY", "")
+    YOUTUBE_CLIENT_ID: str = os.environ.get("YOUTUBE_CLIENT_ID", "")
+    YOUTUBE_CLIENT_SECRET: str = os.environ.get("YOUTUBE_CLIENT_SECRET", "")
+    YOUTUBE_REFRESH_TOKEN: str = os.environ.get("YOUTUBE_REFRESH_TOKEN", "")
 
-# 출력 및 에셋 경로
-OUTPUT_DIR = "outputs"
-ASSETS_DIR = "assets"
-BGM_PATH = os.path.join(ASSETS_DIR, "audio", "music_box_theme.mp3")
+    # Video Settings
+    VIDEO_WIDTH: int = 1080
+    VIDEO_HEIGHT: int = 1920
+    FPS: int = 24
+    
+    # File Paths
+    OPENING_PATH: str = "opening.mp4"
+    CLOSING_PATH: str = "closing.mp4"
+    BASE_VIDEO_PATH: str = "base_render.mp4"
+    OUTPUT_VIDEO_PATH: str = "output_ko.mp4"
+    METADATA_PATH: str = "metadata.json"
 
-# 영상 규격 설정
-VIDEO_FPS = 24
-VIDEO_PRESET = "medium"
-VIDEO_THREADS = 4
+    # Edge-TTS Voice Mapping (한국어 전용 기준)
+    VOICE_MAP = {
+        'Ein': 'ko-KR-InJoonNeural',     # 아인 (은여우 - 스마트/영민함)
+        'Chrono': 'ko-KR-BongJinNeural', # 크로노 (호랑이 - 중저음/엄격함)
+        'Escape': 'ko-KR-SunHiNeural'    # 이스케이프 (토끼 - 경쾌/빠름)
+    }
+
+config = Config()
