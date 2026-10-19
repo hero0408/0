@@ -130,7 +130,7 @@ def generate_scene_video(prompt: str, output_filepath: str):
     luma_key = os.environ.get("LUMA_API_KEY")
     runway_key = os.environ.get("RUNWAY_API_KEY")
 
-    # 1순위: Kling AI (기본 모델 규격 적용)
+    # 1순위: Kling AI (무료 계정 호환 kling-v1 적용)
     if kling_key:
         try:
             logger.info(f"[1순위] Kling API 비디오 생성 시도: {prompt[:30]}...")
@@ -140,6 +140,7 @@ def generate_scene_video(prompt: str, output_filepath: str):
                 "Content-Type": "application/json"
             }
             payload = {
+                "model_name": "kling-v1",
                 "prompt": prompt,
                 "duration": "5",
                 "aspect_ratio": "16:9",
@@ -346,7 +347,7 @@ def generate_script_via_gemini(api_key: str) -> EpisodeScript:
                 "character": "Narrator",
                 "text_ko": "태엽은 조용히 멈추었고, 그 자리엔 작지만 따뜻한 빛이 피어올랐습니다.",
                 "text_en": "The mainspring quietly stopped, and in its place, a small but warm light bloomed.",
-                "text_ja": "ゼンマイは quiet に止まり、そこ에는 小さくも温かい光が咲き誇りました。",
+                "text_ja": "ゼンマイは quiet に止まり、そこには小さくも温かい光が咲き誇りました。",
                 "video_prompt": "16:9 cinematic 3D animation, A peaceful pan-out of clocktower window as warm soft light spreads out under starry night sky, high-end 3D visual"
             }
         ]
@@ -466,7 +467,7 @@ async def async_main():
     if config.YOUTUBE_REFRESH_TOKEN:
         youtube_uploader.upload_private_video(config.OUTPUT_VIDEO_PATH)
 
-    logger.info("파이프라인 실행 완벽 성공!")
+    logger.info("파이프라인 실행 정상 완결!")
 
 if __name__ == "__main__":
     asyncio.run(async_main())
