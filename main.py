@@ -5,6 +5,7 @@ import time
 import asyncio
 import logging
 import urllib.request
+import urllib.error
 from typing import List
 from dataclasses import dataclass
 
@@ -94,7 +95,7 @@ async def generate_tts_files(lines: List[ScriptLine]) -> List[str]:
         if line.character == "Narrator" and fish_key:
             try:
                 generate_fish_audio_voice(line.text_ko, output_file, fish_key)
-                logger.info(f"[{line.character}] Fish Audio 나레이션 음성 생성 완료")
+                logger.info(f"[{line.character}] Fish Audio 나레이션 생성 완료")
                 success = True
             except Exception as e:
                 logger.warning(f"Fish Audio 실패 ({e}), 백업 엔진으로 전환합니다.")
@@ -121,18 +122,30 @@ async def generate_tts_files(lines: List[ScriptLine]) -> List[str]:
     return audio_files
 
 # ==========================================
-# 2. AI 비디오 생성 (Kling 1순위 ➔ MiniMax 2순위)
+# 2. 멀티 AI 비디오 생성 (Kling -> MiniMax -> Luma -> Runway)
 # ==========================================
 def generate_scene_video(prompt: str, output_filepath: str):
     kling_key = os.environ.get("KLING_API_KEY")
     minimax_key = os.environ.get("MINIMAX_API_KEY")
+    luma_key = os.environ.get("LUMA_API_KEY")
+    runway_key = os.environ.get("RUNWAY_API_KEY")
 
+    # 1순위: Kling AI (16:9 가로 비율)
     if kling_key:
         try:
-            logger.info(f"Kling API 비디오 생성 시도: {prompt[:30]}...")
+            logger.info(f"[1순위] Kling API 비디오 생성 시도: {prompt[:30]}...")
             url = "https://api.klingai.com/v1/videos/text2video"
-            headers = {"Authorization": f"Bearer {kling_key}", "Content-Type": "application/json"}
-            payload = {"prompt": prompt, "duration": "5", "aspect_ratio": "9:16", "mode": "std"}
+            headers = {
+                "Authorization": f"Bearer {kling_key}",
+                "Content-Type": "application/json"
+            }
+            payload = {
+                "model_name": "kling-v1",
+                "prompt": prompt,
+                "duration": "5",
+                "aspect_ratio": "16:9",
+                "mode": "std"
+            }
             
             req = urllib.request.Request(url, data=json.dumps(payload).encode('utf-8'), headers=headers, method='POST')
             with urllib.request.urlopen(req) as response:
@@ -140,7 +153,7 @@ def generate_scene_video(prompt: str, output_filepath: str):
                 task_id = res.get("data", {}).get("task_id")
                 
             query_url = f"https://api.klingai.com/v1/videos/text2video/{task_id}"
-            while True:
+            for _ in range(60):
                 time.sleep(5)
                 q_req = urllib.request.Request(query_url, headers=headers, method='GET')
                 with urllib.request.urlopen(q_req) as q_res:
@@ -149,65 +162,159 @@ def generate_scene_video(prompt: str, output_filepath: str):
                     if status == "succeed":
                         video_url = q_data.get("data", {}).get("task_result", {}).get("videos", [{}])[0].get("url")
                         urllib.request.urlretrieve(video_url, output_filepath)
-                        logger.info(f"Kling 비디오 생성 성공: {output_filepath}")
+                        logger.info(f"Kling 16:9 비디오 생성 성공: {output_filepath}")
                         return
                     elif status in ["failed", "canceled"]:
-                        raise Exception("Kling video generation failed")
+                        raise Exception(f"Kling 에러 상태 ({status})")
+        except urllib.error.HTTPError as e:
+            logger.warning(f"Kling HTTP {e.code} 에러: {e.read().decode('utf-8')}")
         except Exception as e:
-            logger.warning(f"Kling API 실패 ({e}). MiniMax API로 전환합니다.")
+            logger.warning(f"Kling API 실패 ({e}), 2순위 MiniMax로 전환합니다.")
 
+    # 2순위: MiniMax Video API (16:9 가로 비율 / 보완된 예외 처리)
     if minimax_key:
         try:
-            logger.info(f"MiniMax API 비디오 생성 시도: {prompt[:30]}...")
+            logger.info(f"[2순위] MiniMax API 비디오 생성 시도: {prompt[:30]}...")
             url = "https://api.minimax.chat/v1/video_generation"
-            headers = {"Authorization": f"Bearer {minimax_key}", "Content-Type": "application/json"}
-            payload = {"prompt": prompt, "model": "video-01", "aspect_ratio": "9:16"}
+            headers = {
+                "Authorization": f"Bearer {minimax_key}",
+                "Content-Type": "application/json"
+            }
+            payload = {
+                "prompt": prompt,
+                "model": "video-01",
+                "aspect_ratio": "16:9"
+            }
 
             req = urllib.request.Request(url, data=json.dumps(payload).encode('utf-8'), headers=headers, method='POST')
             with urllib.request.urlopen(req) as response:
                 res = json.loads(response.read().decode('utf-8'))
                 task_id = res.get("task_id")
-                
+                if not task_id:
+                    raise Exception(f"MiniMax task_id 발급 실패: {res}")
+                logger.info(f"MiniMax Task ID 생성 완료: {task_id}")
+
             query_url = f"https://api.minimax.chat/v1/query/video_generation?task_id={task_id}"
-            while True:
+            for _ in range(60):
                 time.sleep(5)
                 q_req = urllib.request.Request(query_url, headers=headers, method='GET')
                 with urllib.request.urlopen(q_req) as q_res:
                     q_data = json.loads(q_res.read().decode('utf-8'))
-                    if q_data.get("status") == "Success":
-                        file_url = q_data.get("file_url")
+                    status = q_data.get("status")
+                    if status == "Success":
+                        file_url = q_data.get("file_url") or q_data.get("download_url")
+                        if not file_url:
+                            raise Exception(f"MiniMax 비디오 URL이 비어 있습니다: {q_data}")
                         urllib.request.urlretrieve(file_url, output_filepath)
-                        logger.info(f"MiniMax 비디오 생성 성공: {output_filepath}")
+                        logger.info(f"MiniMax 16:9 비디오 생성 성공: {output_filepath}")
                         return
-                    elif q_data.get("status") in ["Fail", "Unknown"]:
-                        raise Exception("MiniMax video generation failed")
+                    elif status in ["Fail", "Unknown"]:
+                        raise Exception(f"MiniMax 생성 실패 상태: {q_data}")
+        except urllib.error.HTTPError as e:
+            logger.warning(f"MiniMax HTTP {e.code} 에러 상세: {e.read().decode('utf-8')}")
         except Exception as e:
-            logger.error(f"MiniMax API 생성 실패: {e}")
+            logger.warning(f"MiniMax API 실패 ({e}), 3순위 Luma AI로 전환합니다.")
 
-    logger.warning("대체 단색 배경을 생성합니다.")
-    ColorClip(size=(config.VIDEO_WIDTH, config.VIDEO_HEIGHT), color=(20, 20, 40), duration=5.0).write_videofile(output_filepath, fps=config.FPS)
+    # 3순위: Luma Dream Machine API (16:9 가로 비율)
+    if luma_key:
+        try:
+            logger.info(f"[3순위] Luma AI 비디오 생성 시도: {prompt[:30]}...")
+            url = "https://api.lumalabs.ai/dream-machine/v1/generations"
+            headers = {
+                "Authorization": f"Bearer {luma_key}",
+                "Content-Type": "application/json"
+            }
+            payload = {
+                "prompt": prompt,
+                "aspect_ratio": "16:9"
+            }
+
+            req = urllib.request.Request(url, data=json.dumps(payload).encode('utf-8'), headers=headers, method='POST')
+            with urllib.request.urlopen(req) as response:
+                res = json.loads(response.read().decode('utf-8'))
+                gen_id = res.get("id")
+
+            query_url = f"https://api.lumalabs.ai/dream-machine/v1/generations/{gen_id}"
+            for _ in range(60):
+                time.sleep(5)
+                q_req = urllib.request.Request(query_url, headers=headers, method='GET')
+                with urllib.request.urlopen(q_req) as q_res:
+                    q_data = json.loads(q_res.read().decode('utf-8'))
+                    if q_data.get("state") == "completed":
+                        video_url = q_data.get("assets", {}).get("video")
+                        urllib.request.urlretrieve(video_url, output_filepath)
+                        logger.info(f"Luma AI 16:9 비디오 생성 성공: {output_filepath}")
+                        return
+                    elif q_data.get("state") == "failed":
+                        raise Exception("Luma AI 생성 실패")
+        except urllib.error.HTTPError as e:
+            logger.warning(f"Luma HTTP {e.code} 에러: {e.read().decode('utf-8')}")
+        except Exception as e:
+            logger.warning(f"Luma AI 실패 ({e}), 4순위 Runway로 전환합니다.")
+
+    # 4순위: Runway API (16:9 가로 비율)
+    if runway_key:
+        try:
+            logger.info(f"[4순위] Runway API 비디오 생성 시도: {prompt[:30]}...")
+            url = "https://api.dev.runwayml.com/v1/image_to_video"
+            headers = {
+                "Authorization": f"Bearer {runway_key}",
+                "Content-Type": "application/json",
+                "X-Runway-Version": "2024-09-13"
+            }
+            payload = {
+                "promptText": prompt,
+                "model": "gen3a_turbo",
+                "ratio": "16:9"
+            }
+
+            req = urllib.request.Request(url, data=json.dumps(payload).encode('utf-8'), headers=headers, method='POST')
+            with urllib.request.urlopen(req) as response:
+                res = json.loads(response.read().decode('utf-8'))
+                task_id = res.get("id")
+
+            query_url = f"https://api.dev.runwayml.com/v1/tasks/{task_id}"
+            for _ in range(60):
+                time.sleep(5)
+                q_req = urllib.request.Request(query_url, headers=headers, method='GET')
+                with urllib.request.urlopen(q_req) as q_res:
+                    q_data = json.loads(q_res.read().decode('utf-8'))
+                    if q_data.get("status") == "SUCCEEDED":
+                        video_url = q_data.get("output", [None])[0]
+                        urllib.request.urlretrieve(video_url, output_filepath)
+                        logger.info(f"Runway 16:9 비디오 생성 성공: {output_filepath}")
+                        return
+                    elif q_data.get("status") == "FAILED":
+                        raise Exception("Runway 생성 실패")
+        except urllib.error.HTTPError as e:
+            logger.warning(f"Runway HTTP {e.code} 에러: {e.read().decode('utf-8')}")
+        except Exception as e:
+            logger.error(f"Runway API 실패: {e}")
+
+    # 모든 비디오 API 생성 실패 시 프로세스 강제 실패 중단
+    raise RuntimeError("모든 비디오 API(Kling, MiniMax, Luma, Runway) 생성 실패. 파이프라인을 중단합니다.")
 
 def ensure_season_intro_outro():
     if not os.path.exists(config.OPENING_PATH):
-        logger.info("시즌 오프닝 생성 중...")
-        generate_scene_video("A 6-second high-end cinematic 3D animation opening of a gothic clocktower with glowing clockwork gears under a starry night sky with full moon. Golden light, masterpiece, hyper-detailed.", config.OPENING_PATH)
+        logger.info("시즌 오프닝 생성 중 (16:9)...")
+        generate_scene_video("16:9 widescreen, cinematic 3D animation opening of a gothic clocktower with glowing clockwork gears under a starry night sky with full moon. Golden light, masterpiece, hyper-detailed", config.OPENING_PATH)
 
     if not os.path.exists(config.CLOSING_PATH):
-        logger.info("시즌 클로징 생성 중...")
-        generate_scene_video("A 6-second high-end cinematic 3D animation closing scene. Slow pan-out from the glowing clocktower to starry night sky, magical embers fading out peacefully.", config.CLOSING_PATH)
+        logger.info("시즌 클로징 생성 중 (16:9)...")
+        generate_scene_video("16:9 widescreen, cinematic 3D animation closing scene. Slow pan-out from glowing clocktower to starry night sky, magical embers fading out peacefully", config.CLOSING_PATH)
 
 # ==========================================
-# 3. 여운과 몰입감을 주는 대본 프롬프트 (Gemini)
+# 3. 생각과 여운을 주는 서사 대본 생성 (Gemini)
 # ==========================================
 def generate_script_via_gemini(api_key: str) -> EpisodeScript:
     models = ["gemini-1.5-flash", "gemini-2.0-flash"]
     prompt = """
     Create a thoughtful, narrative-driven 3D animation script for 'The Clockwork Time Repository'.
-    
+    Ensure 16:9 widescreen video prompts.
+
     STORYTELLING GUIDELINES:
-    - Provide a complete narrative arc (beginning, conflict, decision, and resolution).
-    - Do NOT preach, give moral lessons, or explain what the audience should feel.
-    - Let the characters make clear choices in their situation, leaving room for the audience to reflect on the meaning through their own life experiences.
+    - Provide a complete narrative arc (beginning, conflict, decision, resolution).
+    - Do NOT preach or explain moral lessons directly. Let the audience reflect on their own experiences.
 
     Return JSON ONLY:
     {
@@ -220,28 +327,28 @@ def generate_script_via_gemini(api_key: str) -> EpisodeScript:
                 "text_ko": "보관소 가장 깊은 곳, 누군가 가장 소중히 여겼던 '어느 날의 10분'이 담긴 태엽이 멈추려 합니다.",
                 "text_en": "Deep inside the repository, a mainspring holding someone's most treasured '10 minutes' is about to stop.",
                 "text_ja": "保管所の奥深く、誰かの大切な『ある日の10分』のゼンマイが止まろう meしています。",
-                "video_prompt": "3D animation, A delicate glowing clockwork heart slowing down inside a grand gothic clocktower, golden dust particles, highly emotional atmosphere, masterpiece"
+                "video_prompt": "16:9 cinematic 3D animation, A delicate glowing clockwork heart slowing down inside a grand gothic clocktower, golden dust particles, highly emotional atmosphere, masterpiece"
             },
             {
                 "character": "Ein",
                 "text_ko": "이 태엽을 다시 감으면 기억은 영원히 남겠지만... 새로운 시간은 흐르지 않아.",
                 "text_en": "If we wind this mainspring again, the memory stays forever... but new time won't flow.",
                 "text_ja": "このゼンマイを巻けば記憶は残るけれど、新しい時間は流れない。",
-                "video_prompt": "3D animation, Silver fox Ein holding a glowing crystal key near the clockwork heart, looking conflicted with gentle eyes, warm cinematic lighting"
+                "video_prompt": "16:9 cinematic 3D animation, Silver fox Ein holding a glowing crystal key near clockwork, looking conflicted with gentle eyes, warm lighting"
             },
             {
                 "character": "Chrono",
                 "text_ko": "손을 놓는 것도, 다시 태엽을 감는 것도... 결국 온전히 그의 몫이었지.",
                 "text_en": "Letting go or winding it back up... in the end, it was entirely their choice.",
-                "text_ja": "手を放すことも、再び巻くことも... 全ては彼自身の 선택이었어.",
-                "video_prompt": "3D animation, Brave tiger Chrono standing solemnly beside giant turning gears, warm lantern light, calm and deep atmosphere"
+                "text_ja": "手を放すことも、再び巻くことも... 全ては彼自身の choices.",
+                "video_prompt": "16:9 cinematic 3D animation, Brave tiger Chrono standing solemnly beside giant turning gears, warm lantern light, calm deep atmosphere"
             },
             {
                 "character": "Narrator",
                 "text_ko": "태엽은 조용히 멈추었고, 그 자리엔 작지만 따뜻한 빛이 피어올랐습니다.",
                 "text_en": "The mainspring quietly stopped, and in its place, a small but warm light bloomed.",
                 "text_ja": "ゼンマイは quiet に止まり、そこには小さくも温かい光が咲き誇りました。",
-                "video_prompt": "3D animation, A peaceful pan-out of the clocktower window as a warm soft light spreads out under a starry night sky, high-end 3D visual"
+                "video_prompt": "16:9 cinematic 3D animation, A peaceful pan-out of clocktower window as warm soft light spreads out under starry night sky, high-end 3D visual"
             }
         ]
     }
@@ -274,10 +381,10 @@ def get_script_with_fallback() -> EpisodeScript:
         title_en="The Stopped Mainspring and the Final Moment",
         title_ja="止まったゼンマイと最後の瞬間",
         lines=[
-            ScriptLine(character="Narrator", text_ko="보관소 가장 깊은 곳, 누군가 소중히 여겼던 태엽이 멈추려 합니다.", text_en="A mainspring is about to stop.", text_ja="ゼンマイが止まろう me step.", video_prompt="3D animation, Clockwork heart slowing down inside clocktower"),
-            ScriptLine(character="Ein", text_ko="이 태엽을 다시 감으면 기억은 남겠지만... 새로운 시간은 흐르지 않아.", text_en="New time won't flow.", text_ja="新しい時間は流れない。", video_prompt="3D animation, Silver fox Ein holding glowing key near clockwork"),
-            ScriptLine(character="Chrono", text_ko="손을 놓는 것도, 다시 감는 것도... 온전히 그의 몫이었지.", text_en="It was entirely their choice.", text_ja="全ては彼自身の choices.", video_prompt="3D animation, Tiger Chrono standing near turning gears"),
-            ScriptLine(character="Narrator", text_ko="태엽은 조용히 멈추었고, 그 자리엔 작지만 따뜻한 빛이 피어올랐습니다.", text_en="A warm light bloomed.", text_ja="温かい光が咲きました。", video_prompt="3D animation, Warm light spreading under starry night sky")
+            ScriptLine(character="Narrator", text_ko="보관소 가장 깊은 곳, 누군가 소중히 여겼던 태엽이 멈추려 합니다.", text_en="A mainspring is about to stop.", text_ja="ゼンマイが止まろう step.", video_prompt="16:9 cinematic 3D animation, Clockwork heart slowing down inside clocktower"),
+            ScriptLine(character="Ein", text_ko="이 태엽을 다시 감으면 기억은 남겠지만... 새로운 시간은 흐르지 않아.", text_en="New time won't flow.", text_ja="新しい時間は流れない。", video_prompt="16:9 cinematic 3D animation, Silver fox Ein holding glowing key"),
+            ScriptLine(character="Chrono", text_ko="손을 놓는 것도, 다시 감는 것도... 온전히 그의 몫이었지.", text_en="It was entirely their choice.", text_ja="全ては彼自身の choices.", video_prompt="16:9 cinematic 3D animation, Tiger Chrono standing near turning gears"),
+            ScriptLine(character="Narrator", text_ko="태엽은 조용히 멈추었고, 그 자리엔 작지만 따뜻한 빛이 피어올랐습니다.", text_en="A warm light bloomed.", text_ja="温かい光が咲きました。", video_prompt="16:9 cinematic 3D animation, Warm light spreading under starry night sky")
         ]
     )
 
@@ -337,19 +444,19 @@ def render_full_episode_multi_scene(lines: List[ScriptLine], audio_files: List[s
             os.remove(s_path)
 
 async def async_main():
-    logger.info("[1/5] 오프닝/클로징 검사...")
+    logger.info("[1/5] 오프닝/클로징 검사 (16:9)...")
     ensure_season_intro_outro()
 
-    logger.info("[2/5] 기승전결 서사 대본 생성...")
+    logger.info("[2/5] 서사 대본 생성...")
     script = get_script_with_fallback()
 
     with open(config.METADATA_PATH, "w", encoding="utf-8") as f:
         json.dump({"title_ko": script.title_ko}, f, ensure_ascii=False, indent=2)
 
-    logger.info("[3/5] 다중 성우 API 음성 생성...")
+    logger.info("[3/5] 음성 생성...")
     audio_files = await generate_tts_files(script.lines)
 
-    logger.info("[4/5] 대사별 AI 영상 생성 및 멀티 씬 합성...")
+    logger.info("[4/5] 장면별 16:9 AI 비디오 생성 및 합성...")
     render_full_episode_multi_scene(script.lines, audio_files, config.OUTPUT_VIDEO_PATH)
 
     for af in audio_files:
@@ -360,7 +467,7 @@ async def async_main():
     if config.YOUTUBE_REFRESH_TOKEN:
         youtube_uploader.upload_private_video(config.OUTPUT_VIDEO_PATH)
 
-    logger.info("파이프라인 실행 완료!")
+    logger.info("파이프라인 실행 완벽 성공!")
 
 if __name__ == "__main__":
     asyncio.run(async_main())
