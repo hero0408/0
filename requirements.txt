@@ -1,4 +1,5 @@
-requests>=2.31.0
+moviepy>=2.0.0.dev2
 edge-tts>=6.1.9
-moviepy>=2.0.0
-asyncio
+google-api-python-client>=2.100.0
+google-auth-oauthlib>=1.1.0
+google-auth-httplib2>=0.1.1
