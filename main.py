@@ -55,7 +55,7 @@ EDGE_TTS_CONFIG = {
 # ==========================================
 def generate_elevenlabs_voice(voice_id: str, text: str, output_path: str, api_key: str):
     url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
-    headers = {"Accept": "audio/mpeg", "Content-Type": "application/json", "xi-api-key": api_key}
+    headers = {"Accept": "audio/mpeg", "Content-Type": "application/json", "xi-api-key": api_key.strip()}
     payload = {
         "text": text,
         "model_id": "eleven_multilingual_v2",
@@ -69,7 +69,7 @@ def generate_elevenlabs_voice(voice_id: str, text: str, output_path: str, api_ke
 def generate_fish_audio_voice(text: str, output_path: str, api_key: str):
     url = "https://api.fish.audio/v1/tts"
     headers = {
-        "Authorization": f"Bearer {api_key}",
+        "Authorization": f"Bearer {api_key.strip()}",
         "Content-Type": "application/json"
     }
     payload = {
@@ -122,7 +122,7 @@ async def generate_tts_files(lines: List[ScriptLine]) -> List[str]:
     return audio_files
 
 # ==========================================
-# 2. 멀티 AI 비디오 생성 (Kling 1-5 -> MiniMax -> Luma -> Runway Gen4.5)
+# 2. 멀티 AI 비디오 생성 (Kling v1-6 -> MiniMax -> Luma -> Runway Gen4.5)
 # ==========================================
 def generate_scene_video(prompt: str, output_filepath: str):
     kling_key = os.environ.get("KLING_API_KEY")
@@ -130,17 +130,17 @@ def generate_scene_video(prompt: str, output_filepath: str):
     luma_key = os.environ.get("LUMA_API_KEY")
     runway_key = os.environ.get("RUNWAY_API_KEY")
 
-    # 1순위: Kling AI (kling-v1-5 최신 모델 / 16:9)
+    # 1순위: Kling AI (kling-v1-6 최신 모델 / 16:9)
     if kling_key:
         try:
             logger.info(f"[1순위] Kling API 비디오 생성 시도: {prompt[:30]}...")
             url = "https://api.klingai.com/v1/videos/text2video"
             headers = {
-                "Authorization": f"Bearer {kling_key}",
+                "Authorization": f"Bearer {kling_key.strip()}",
                 "Content-Type": "application/json"
             }
             payload = {
-                "model_name": "kling-v1-5",
+                "model_name": "kling-v1-6",
                 "prompt": prompt,
                 "duration": "5",
                 "aspect_ratio": "16:9",
@@ -252,7 +252,7 @@ def generate_scene_video(prompt: str, output_filepath: str):
         except Exception as e:
             logger.warning(f"Luma AI 실패 ({e}), 4순위 Runway로 전환합니다.")
 
-    # 4순위: Runway API (text_to_video 엔드포인트 & gen4.5 최신 모델 적용)
+    # 4순위: Runway API (1280:720 정규 규격 적용)
     if runway_key:
         try:
             logger.info(f"[4순위] Runway API 비디오 생성 시도: {prompt[:30]}...")
@@ -265,7 +265,8 @@ def generate_scene_video(prompt: str, output_filepath: str):
             payload = {
                 "promptText": prompt,
                 "model": "gen4.5",
-                "ratio": "16:9"
+                "ratio": "1280:720",
+                "duration": 5
             }
 
             req = urllib.request.Request(url, data=json.dumps(payload).encode('utf-8'), headers=headers, method='POST')
@@ -282,7 +283,7 @@ def generate_scene_video(prompt: str, output_filepath: str):
                     if q_data.get("status") == "SUCCEEDED":
                         video_url = q_data.get("output", [None])[0]
                         urllib.request.urlretrieve(video_url, output_filepath)
-                        logger.info(f"Runway 16:9 비디오 생성 성공: {output_filepath}")
+                        logger.info(f"Runway 1280x720 비디오 생성 성공: {output_filepath}")
                         return
                     elif q_data.get("status") == "FAILED":
                         raise Exception("Runway 생성 실패")
@@ -347,7 +348,7 @@ def generate_script_via_gemini(api_key: str) -> EpisodeScript:
                 "character": "Narrator",
                 "text_ko": "태엽은 조용히 멈추었고, 그 자리엔 작지만 따뜻한 빛이 피어올랐습니다.",
                 "text_en": "The mainspring quietly stopped, and in its place, a small but warm light bloomed.",
-                "text_ja": "ゼンマイは quiet に止まり、そこには小さくも温かい光가 咲き誇りました。",
+                "text_ja": "ゼンマイは quiet に止まり、そこには小さくも温かい光が咲き誇りました。",
                 "video_prompt": "16:9 cinematic 3D animation, A peaceful pan-out of clocktower window as warm soft light spreads out under starry night sky, high-end 3D visual"
             }
         ]
@@ -355,7 +356,7 @@ def generate_script_via_gemini(api_key: str) -> EpisodeScript:
     """
     payload = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"response_mime_type": "application/json"}}
     for model in models:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key.strip()}"
         req = urllib.request.Request(url, data=json.dumps(payload).encode('utf-8'), headers={'Content-Type': 'application/json'}, method='POST')
         try:
             with urllib.request.urlopen(req) as response:
@@ -467,7 +468,7 @@ async def async_main():
     if config.YOUTUBE_REFRESH_TOKEN:
         youtube_uploader.upload_private_video(config.OUTPUT_VIDEO_PATH)
 
-    logger.info("최신 API 규격 기반 파이프라인 빌드 완결!")
+    logger.info("파이프라인 빌드 정상 완결!")
 
 if __name__ == "__main__":
     asyncio.run(async_main())
