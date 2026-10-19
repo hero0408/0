@@ -1,40 +1,58 @@
-name: 24/7 Shorts Factory Bot
+name: Generate Clockwork Repository Episode
 
 on:
-  schedule:
-    - cron: '0 0 * * *'  # 매일 정오(KST) 자동 실행
-  workflow_dispatch:      # 수동 실행 버튼
+  workflow_dispatch:
+    inputs:
+      season:
+        description: 'Season Number (1-3)'
+        required: true
+        default: '1'
+      episode:
+        description: 'Episode Number (1-12)'
+        required: true
+        default: '1'
 
 jobs:
-  build-and-upload:
+  build-and-generate:
     runs-on: ubuntu-latest
+
     steps:
-    - name: 저장소 코드 불러오기
-      uses: actions/checkout@v3
+      # 1. 레포지토리 코드 불러오기 (최신 v4 적용으로 Node.js 경고 방지)
+      - name: Check out repository
+        uses: actions/checkout@v4
 
-    - name: 파이썬 3.11 환경 설정
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.11'
+      # 2. 파이썬 환경 설정 (최신 v5 적용)
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
 
-    - name: Node.js 18 설치 (yt-dlp JS 해독 엔진)
-      uses: actions/setup-node@v3
-      with:
-        node-version: '18'
+      # 3. 시스템 필수 패키지 설치 (FFmpeg 및 나눔고딕 폰트)
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-nanum
 
-    - name: 시스템 필수 패키지 설치 (FFmpeg 및 나눔고딕 폰트)
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y ffmpeg fonts-nanum
+      # 4. 파이썬 라이브러리 설치
+      - name: Install Python Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
-    - name: 파이썬 라이브러리 설치 및 yt-dlp 최신화
-      run: |
-        python -m pip install --upgrade pip
-        pip install google-genai edge-tts yt-dlp moviepy pillow requests
+      # 5. 쇼츠 영상 자동 제작 파이프라인 실행
+      - name: Run Main Video Pipeline
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          MINIMAX_API_KEY: ${{ secrets.MINIMAX_API_KEY }}
+          PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+        run: |
+          python main.py
 
-    - name: 쇼츠 영상 자동 제작 및 유튜브 업로드
-      env:
-        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        GOOGLE_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        YOUTUBE_COOKIES: ${{ secrets.YOUTUBE_COOKIES }}
-      run: python main.py
+      # 6. 생성된 최종 mp4 영상을 Artifacts 저장소에 안전하게 저장 (최신 v4)
+      - name: Upload Generated Video Artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: S${{ github.event.inputs.season }}_E${{ github.event.inputs.episode }}_final_video
+          path: "*.mp4"
