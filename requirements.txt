@@ -1,9 +1,4 @@
-google-genai
-edge-tts
-requests
-moviepy==1.0.3
-decorator<5.0.0
-google-auth-oauthlib
-google-auth-httplib2
-google-api-python-client
-yt-dlp
+requests>=2.31.0
+edge-tts>=6.1.9
+moviepy>=2.0.0
+asyncio
