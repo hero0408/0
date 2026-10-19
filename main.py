@@ -122,7 +122,7 @@ async def generate_tts_files(lines: List[ScriptLine]) -> List[str]:
     return audio_files
 
 # ==========================================
-# 2. 멀티 AI 비디오 생성 (Kling v1-6 -> MiniMax -> Luma -> Runway Gen4.5)
+# 2. 멀티 AI 비디오 생성 (Kling -> MiniMax -> Luma -> Runway)
 # ==========================================
 def generate_scene_video(prompt: str, output_filepath: str):
     kling_key = os.environ.get("KLING_API_KEY")
@@ -130,7 +130,7 @@ def generate_scene_video(prompt: str, output_filepath: str):
     luma_key = os.environ.get("LUMA_API_KEY")
     runway_key = os.environ.get("RUNWAY_API_KEY")
 
-    # 1순위: Kling AI (kling-v1-6 최신 모델 / 16:9)
+    # 1순위: Kling AI (기본 모델 규격 적용)
     if kling_key:
         try:
             logger.info(f"[1순위] Kling API 비디오 생성 시도: {prompt[:30]}...")
@@ -140,7 +140,6 @@ def generate_scene_video(prompt: str, output_filepath: str):
                 "Content-Type": "application/json"
             }
             payload = {
-                "model_name": "kling-v1-6",
                 "prompt": prompt,
                 "duration": "5",
                 "aspect_ratio": "16:9",
@@ -192,7 +191,6 @@ def generate_scene_video(prompt: str, output_filepath: str):
                 task_id = res.get("task_id")
                 if not task_id:
                     raise Exception(f"MiniMax task_id 발급 실패: {res}")
-                logger.info(f"MiniMax Task ID 생성 완료: {task_id}")
 
             query_url = f"https://api.minimax.chat/v1/query/video_generation?task_id={task_id}"
             for _ in range(60):
@@ -252,7 +250,7 @@ def generate_scene_video(prompt: str, output_filepath: str):
         except Exception as e:
             logger.warning(f"Luma AI 실패 ({e}), 4순위 Runway로 전환합니다.")
 
-    # 4순위: Runway API (1280:720 정규 규격 적용)
+    # 4순위: Runway API (1280:720 규격)
     if runway_key:
         try:
             logger.info(f"[4순위] Runway API 비디오 생성 시도: {prompt[:30]}...")
@@ -348,7 +346,7 @@ def generate_script_via_gemini(api_key: str) -> EpisodeScript:
                 "character": "Narrator",
                 "text_ko": "태엽은 조용히 멈추었고, 그 자리엔 작지만 따뜻한 빛이 피어올랐습니다.",
                 "text_en": "The mainspring quietly stopped, and in its place, a small but warm light bloomed.",
-                "text_ja": "ゼンマイは quiet に止まり、そこには小さくも温かい光が咲き誇りました。",
+                "text_ja": "ゼンマイは quiet に止まり、そこ에는 小さくも温かい光が咲き誇りました。",
                 "video_prompt": "16:9 cinematic 3D animation, A peaceful pan-out of clocktower window as warm soft light spreads out under starry night sky, high-end 3D visual"
             }
         ]
@@ -468,7 +466,7 @@ async def async_main():
     if config.YOUTUBE_REFRESH_TOKEN:
         youtube_uploader.upload_private_video(config.OUTPUT_VIDEO_PATH)
 
-    logger.info("파이프라인 빌드 정상 완결!")
+    logger.info("파이프라인 실행 완벽 성공!")
 
 if __name__ == "__main__":
     asyncio.run(async_main())
