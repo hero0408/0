@@ -9,13 +9,10 @@ from typing import List
 from dataclasses import dataclass
 
 import edge_tts
+# MoviePy v2.2.1 정식 표준 임포트
 from moviepy import VideoFileClip, ColorClip, AudioFileClip, CompositeAudioClip, concatenate_videoclips
-
-# MoviePy v2.x 최신 표준 개별 모듈 임포트 (ImportError 완벽 방어)
-from moviepy.video.fx.crossfadein import crossfadein
-from moviepy.video.fx.crossfadeout import crossfadeout
-from moviepy.audio.fx.audio_fadein import audio_fadein
-from moviepy.audio.fx.audio_fadeout import audio_fadeout
+import moviepy.video.fx as vfx
+import moviepy.audio.fx as afx
 
 from config import config
 import youtube_uploader
@@ -95,7 +92,7 @@ def generate_video_via_minimax(prompt: str, output_filepath: str):
         ColorClip(size=(config.VIDEO_WIDTH, config.VIDEO_HEIGHT), color=(15, 10, 30), duration=6.0).write_videofile(output_filepath, fps=config.FPS)
 
 # ==========================================
-# 2. Gemini 대본 생성 (안전한 JSON Parsing 정규식 포함)
+# 2. Gemini 대본 생성
 # ==========================================
 def generate_script_via_gemini(api_key: str) -> EpisodeScript:
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
@@ -137,23 +134,23 @@ async def generate_tts_files(lines: List[ScriptLine]) -> List[str]:
     return audio_files
 
 # ==========================================
-# 4. MoviePy v2 합성 Engine (효과 직호출 안전화 적용)
+# 4. MoviePy v2.2.1 합성 Engine (클래스 인스턴스화 적용)
 # ==========================================
 def render_full_episode(base_video_path: str, audio_files: List[str], output_path: str):
     opening_clip = VideoFileClip(config.OPENING_PATH)
     opening_duration = min(6.0, opening_clip.duration)
-    opening_clip = opening_clip.subclipped(0, opening_duration).with_effects([crossfadein(0.5)])
+    opening_clip = opening_clip.subclipped(0, opening_duration).with_effects([vfx.CrossFadeIn(0.5)])
     
     closing_clip = VideoFileClip(config.CLOSING_PATH)
     closing_duration = min(6.0, closing_clip.duration)
-    closing_clip = closing_clip.subclipped(0, closing_duration).with_effects([crossfadeout(0.5)])
+    closing_clip = closing_clip.subclipped(0, closing_duration).with_effects([vfx.CrossFadeOut(0.5)])
     
     body_video = VideoFileClip(base_video_path)
     
     audio_clips = []
     current_time = 0.5
     for a_file in audio_files:
-        clip = AudioFileClip(a_file).with_effects([audio_fadein(0.05), audio_fadeout(0.05)]).with_start(current_time)
+        clip = AudioFileClip(a_file).with_effects([afx.AudioFadeIn(0.05), afx.AudioFadeOut(0.05)]).with_start(current_time)
         audio_clips.append(clip)
         current_time += clip.duration + 0.4
         
