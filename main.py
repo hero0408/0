@@ -122,7 +122,7 @@ async def generate_tts_files(lines: List[ScriptLine]) -> List[str]:
     return audio_files
 
 # ==========================================
-# 2. 멀티 AI 비디오 생성 (Kling -> MiniMax -> Luma -> Runway)
+# 2. 멀티 AI 비디오 생성 (Kling 1-5 -> MiniMax -> Luma -> Runway Gen4.5)
 # ==========================================
 def generate_scene_video(prompt: str, output_filepath: str):
     kling_key = os.environ.get("KLING_API_KEY")
@@ -130,7 +130,7 @@ def generate_scene_video(prompt: str, output_filepath: str):
     luma_key = os.environ.get("LUMA_API_KEY")
     runway_key = os.environ.get("RUNWAY_API_KEY")
 
-    # 1순위: Kling AI (16:9 가로 비율)
+    # 1순위: Kling AI (kling-v1-5 최신 모델 / 16:9)
     if kling_key:
         try:
             logger.info(f"[1순위] Kling API 비디오 생성 시도: {prompt[:30]}...")
@@ -140,7 +140,7 @@ def generate_scene_video(prompt: str, output_filepath: str):
                 "Content-Type": "application/json"
             }
             payload = {
-                "model_name": "kling-v1",
+                "model_name": "kling-v1-5",
                 "prompt": prompt,
                 "duration": "5",
                 "aspect_ratio": "16:9",
@@ -171,13 +171,13 @@ def generate_scene_video(prompt: str, output_filepath: str):
         except Exception as e:
             logger.warning(f"Kling API 실패 ({e}), 2순위 MiniMax로 전환합니다.")
 
-    # 2순위: MiniMax Video API (16:9 가로 비율 / 보완된 예외 처리)
+    # 2순위: MiniMax Video API (16:9 가로 비율)
     if minimax_key:
         try:
             logger.info(f"[2순위] MiniMax API 비디오 생성 시도: {prompt[:30]}...")
             url = "https://api.minimax.chat/v1/video_generation"
             headers = {
-                "Authorization": f"Bearer {minimax_key}",
+                "Authorization": f"Bearer {minimax_key.strip()}",
                 "Content-Type": "application/json"
             }
             payload = {
@@ -221,7 +221,7 @@ def generate_scene_video(prompt: str, output_filepath: str):
             logger.info(f"[3순위] Luma AI 비디오 생성 시도: {prompt[:30]}...")
             url = "https://api.lumalabs.ai/dream-machine/v1/generations"
             headers = {
-                "Authorization": f"Bearer {luma_key}",
+                "Authorization": f"Bearer {luma_key.strip()}",
                 "Content-Type": "application/json"
             }
             payload = {
@@ -252,19 +252,19 @@ def generate_scene_video(prompt: str, output_filepath: str):
         except Exception as e:
             logger.warning(f"Luma AI 실패 ({e}), 4순위 Runway로 전환합니다.")
 
-    # 4순위: Runway API (16:9 가로 비율)
+    # 4순위: Runway API (text_to_video 엔드포인트 & gen4.5 최신 모델 적용)
     if runway_key:
         try:
             logger.info(f"[4순위] Runway API 비디오 생성 시도: {prompt[:30]}...")
-            url = "https://api.dev.runwayml.com/v1/image_to_video"
+            url = "https://api.dev.runwayml.com/v1/text_to_video"
             headers = {
-                "Authorization": f"Bearer {runway_key}",
+                "Authorization": f"Bearer {runway_key.strip()}",
                 "Content-Type": "application/json",
                 "X-Runway-Version": "2024-09-13"
             }
             payload = {
                 "promptText": prompt,
-                "model": "gen3a_turbo",
+                "model": "gen4.5",
                 "ratio": "16:9"
             }
 
@@ -347,7 +347,7 @@ def generate_script_via_gemini(api_key: str) -> EpisodeScript:
                 "character": "Narrator",
                 "text_ko": "태엽은 조용히 멈추었고, 그 자리엔 작지만 따뜻한 빛이 피어올랐습니다.",
                 "text_en": "The mainspring quietly stopped, and in its place, a small but warm light bloomed.",
-                "text_ja": "ゼンマイは quiet に止まり、そこには小さくも温かい光が咲き誇りました。",
+                "text_ja": "ゼンマイは quiet に止まり、そこには小さくも温かい光가 咲き誇りました。",
                 "video_prompt": "16:9 cinematic 3D animation, A peaceful pan-out of clocktower window as warm soft light spreads out under starry night sky, high-end 3D visual"
             }
         ]
@@ -467,7 +467,7 @@ async def async_main():
     if config.YOUTUBE_REFRESH_TOKEN:
         youtube_uploader.upload_private_video(config.OUTPUT_VIDEO_PATH)
 
-    logger.info("파이프라인 실행 완벽 성공!")
+    logger.info("최신 API 규격 기반 파이프라인 빌드 완결!")
 
 if __name__ == "__main__":
     asyncio.run(async_main())
