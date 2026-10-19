@@ -9,7 +9,7 @@ from typing import List
 from dataclasses import dataclass
 
 import edge_tts
-# MoviePy v2.2.1 정식 표준 임포트
+# MoviePy v2.2.1 정식 규격 호환 임포트
 from moviepy import VideoFileClip, ColorClip, AudioFileClip, CompositeAudioClip, concatenate_videoclips
 import moviepy.video.fx as vfx
 import moviepy.audio.fx as afx
@@ -95,7 +95,7 @@ def generate_video_via_minimax(prompt: str, output_filepath: str):
 # 2. Gemini 대본 생성
 # ==========================================
 def generate_script_via_gemini(api_key: str) -> EpisodeScript:
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+    models = ["gemini-1.5-flash", "gemini-2.0-flash"]
     prompt = """
     Create a short 3D animation script for 'The Clockwork Time Repository'.
     Characters: Ein (Silver Fox), Chrono (Tiger), Escape (Rabbit).
@@ -112,17 +112,106 @@ def generate_script_via_gemini(api_key: str) -> EpisodeScript:
     }
     """
     payload = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"response_mime_type": "application/json"}}
-    req = urllib.request.Request(url, data=json.dumps(payload).encode('utf-8'), headers={'Content-Type': 'application/json'}, method='POST')
     
-    with urllib.request.urlopen(req) as response:
-        res_data = json.loads(response.read().decode('utf-8'))
-        raw_text = res_data['candidates'][0]['content']['parts'][0]['text']
-        cleaned_text = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw_text.strip(), flags=re.MULTILINE)
-        data = json.loads(cleaned_text)
-        return EpisodeScript(title_ko=data['title_ko'], title_en=data['title_en'], title_ja=data['title_ja'], lines=[ScriptLine(**l) for l in data['lines']])
+    for model in models:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+        req = urllib.request.Request(url, data=json.dumps(payload).encode('utf-8'), headers={'Content-Type': 'application/json'}, method='POST')
+        try:
+            logger.info(f"Gemini API 호출 시도 ({model})...")
+            with urllib.request.urlopen(req) as response:
+                res_data = json.loads(response.read().decode('utf-8'))
+                raw_text = res_data['candidates'][0]['content']['parts'][0]['text']
+                cleaned_text = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw_text.strip(), flags=re.MULTILINE)
+                data = json.loads(cleaned_text)
+                return EpisodeScript(title_ko=data['title_ko'], title_en=data['title_en'], title_ja=data['title_ja'], lines=[ScriptLine(**l) for l in data['lines']])
+        except Exception as e:
+            logger.warning(f"Gemini ({model}) 실패: {e}")
+    raise Exception("모든 Gemini 모델 호출 실패")
 
 # ==========================================
-# 3. Edge-TTS 음성 합성
+# 3. Groq API 대본 생성 (대체 API - Llama 3.3 70B)
+# ==========================================
+def generate_script_via_groq(api_key: str) -> EpisodeScript:
+    logger.info("Groq API (Llama-3.3-70b) 대본 생성 시도...")
+    url = "https://api.groq.com/openai/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+    prompt = """
+    Create a short 3D animation script for 'The Clockwork Time Repository'.
+    Characters: Ein (Silver Fox), Chrono (Tiger), Escape (Rabbit).
+    Return JSON ONLY:
+    {
+        "title_ko": "시침이 멈춘 시간 보관소",
+        "title_en": "The Clockwork Time Repository",
+        "title_ja": "針가 止まった時間保管所",
+        "lines": [
+            {"character": "Ein", "text_ko": "보관소의 태엽이 다시 돌아가기 시작했어.", "text_en": "The mainspring started turning again.", "text_ja": "保管所のゼンマイが再び回り始めた。"},
+            {"character": "Chrono", "text_ko": "시간의 궤도를 벗어나지 않도록 주의해라.", "text_en": "Be careful not to stray off course.", "text_ja": "時間の軌道を外れないよう注意しろ。"},
+            {"character": "Escape", "text_ko": "늦기 전에 빨리 확인하러 가자!", "text_en": "Let's check before it's too late!", "text_ja": "遅れる前に早く確認しに行こう！"}
+        ]
+    }
+    """
+    payload = {
+        "model": "llama-3.3-70b-versatile",
+        "messages": [
+            {"role": "system", "content": "You are an AI scriptwriter. Respond ONLY with valid JSON."},
+            {"role": "user", "content": prompt}
+        ],
+        "response_format": {"type": "json_object"},
+        "temperature": 0.7
+    }
+    
+    req = urllib.request.Request(url, data=json.dumps(payload).encode('utf-8'), headers=headers, method='POST')
+    with urllib.request.urlopen(req) as response:
+        res_data = json.loads(response.read().decode('utf-8'))
+        raw_text = res_data['choices'][0]['message']['content']
+        cleaned_text = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw_text.strip(), flags=re.MULTILINE)
+        data = json.loads(cleaned_text)
+        return EpisodeScript(
+            title_ko=data['title_ko'],
+            title_en=data['title_en'],
+            title_ja=data['title_ja'],
+            lines=[ScriptLine(**l) for l in data['lines']]
+        )
+
+# ==========================================
+# 4. 통합 대본 획득 (Fallback 메커니즘)
+# ==========================================
+def get_script_with_fallback() -> EpisodeScript:
+    gemini_key = os.environ.get("GEMINI_API_KEY")
+    groq_key = os.environ.get("GROQ_API_KEY")
+
+    # 1순위: Gemini
+    if gemini_key:
+        try:
+            return generate_script_via_gemini(gemini_key)
+        except Exception as e:
+            logger.warning(f"1순위 Gemini 실패: {e}")
+
+    # 2순위: Groq
+    if groq_key:
+        try:
+            return generate_script_via_groq(groq_key)
+        except Exception as e:
+            logger.warning(f"2순위 Groq 실패: {e}")
+
+    # 3순위: 백업 기본 대본
+    logger.warning("모든 AI API 실패/미설정으로 백업 기본 대본을 사용합니다.")
+    return EpisodeScript(
+        title_ko="시침이 멈춘 시간 보관소",
+        title_en="The Clockwork Time Repository",
+        title_ja="針が止まった時間保管所",
+        lines=[
+            ScriptLine(character="Ein", text_ko="보관소의 태엽이 다시 돌아가기 시작했어.", text_en="The mainspring started turning again.", text_ja="保管所のゼンマイが再び回り始めた。"),
+            ScriptLine(character="Chrono", text_ko="시간의 궤도를 벗어나지 않도록 주의해라.", text_en="Be careful not to stray off course.", text_ja="時間の軌道を外れないよう注意しろ。"),
+            ScriptLine(character="Escape", text_ko="늦기 전에 빨리 확인하러 가자!", text_en="Let's check before it's too late!", text_ja="遅れる前に早く確認しに行こう！")
+        ]
+    )
+
+# ==========================================
+# 5. Edge-TTS 음성 합성
 # ==========================================
 async def generate_tts_files(lines: List[ScriptLine]) -> List[str]:
     audio_files = []
@@ -134,7 +223,7 @@ async def generate_tts_files(lines: List[ScriptLine]) -> List[str]:
     return audio_files
 
 # ==========================================
-# 4. MoviePy v2.2.1 합성 Engine (클래스 인스턴스화 적용)
+# 6. MoviePy v2.2.1 합성 Engine
 # ==========================================
 def render_full_episode(base_video_path: str, audio_files: List[str], output_path: str):
     opening_clip = VideoFileClip(config.OPENING_PATH)
@@ -179,17 +268,14 @@ def render_full_episode(base_video_path: str, audio_files: List[str], output_pat
     final_video.close()
 
 # ==========================================
-# 5. 파이프라인 메인 실행
+# 7. 파이프라인 메인 실행
 # ==========================================
 async def async_main():
-    if not config.GEMINI_API_KEY:
-        raise ValueError("GEMINI_API_KEY가 설정되지 않았습니다.")
-        
     logger.info("[1/5] 시즌 고정 오프닝/클로징 검사...")
     ensure_season_intro_outro()
 
-    logger.info("[2/5] Gemini 대본 생성...")
-    script = generate_script_via_gemini(config.GEMINI_API_KEY)
+    logger.info("[2/5] 대본 생성 (Gemini ➔ Groq ➔ Fallback)...")
+    script = get_script_with_fallback()
     
     with open(config.METADATA_PATH, "w", encoding="utf-8") as f:
         json.dump({"title_ko": script.title_ko}, f, ensure_ascii=False, indent=2)
@@ -211,7 +297,7 @@ async def async_main():
     if config.YOUTUBE_REFRESH_TOKEN:
         youtube_uploader.upload_private_video(config.OUTPUT_VIDEO_PATH)
 
-    logger.info("파이프라인 실행 성공!")
+    logger.info("파이프라인 실행 완전 성공!")
 
 if __name__ == "__main__":
     asyncio.run(async_main())
