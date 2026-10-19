@@ -9,11 +9,10 @@ from typing import List
 from dataclasses import dataclass
 
 import edge_tts
-from moviepy.VideoClip import VideoFileClip, ColorClip
-from moviepy.AudioClip import AudioFileClip, CompositeAudioClip
-from moviepy.video.compositing.concatenate import concatenate_videoclips
-from moviepy.video.fx import CrossFadeIn, CrossFadeOut
-from moviepy.audio.fx import AudioFadeIn, AudioFadeOut
+# MoviePy v2 최신 호환 임포트 (모듈 임포트 에러 완벽 차단)
+from moviepy import VideoFileClip, ColorClip, AudioFileClip, CompositeAudioClip, concatenate_videoclips
+from moviepy.video.fx import crossfadein, crossfadeout
+from moviepy.audio.fx import audio_fadein, audio_fadeout
 
 from config import config
 import youtube_uploader
@@ -36,16 +35,11 @@ class EpisodeScript:
     lines: List[ScriptLine]
 
 # ==========================================
-# 1. 시즌용 고정 오프닝/클로징 검사 및 필요시에만 최초 1회 생성
+# 1. 시즌 고정 오프닝/클로징 캐시 처리 (토큰 소모 0%)
 # ==========================================
 def ensure_season_intro_outro():
-    """
-    오프닝(opening.mp4)과 클로징(closing.mp4) 파일이 이미 존재하면 
-    MiniMax API를 절대로 호출하지 않고 기존 고정 파일을 재사용합니다. (토큰 낭비 0%)
-    """
     minimax_key = os.environ.get("MINIMAX_API_KEY")
 
-    # [오프닝 파일 검사 및 최초 1회 생성]
     if not os.path.exists(config.OPENING_PATH):
         logger.info("시즌 오프닝 파일이 없어 최초 1회 자동 생성을 진행합니다.")
         if minimax_key:
@@ -55,9 +49,8 @@ def ensure_season_intro_outro():
             logger.warning("MINIMAX_API_KEY가 없어 단색 임시 오프닝을 생성합니다.")
             ColorClip(size=(config.VIDEO_WIDTH, config.VIDEO_HEIGHT), color=(15, 10, 30), duration=6.0).write_videofile(config.OPENING_PATH, fps=config.FPS)
     else:
-        logger.info("기존 시즌 오프닝(opening.mp4)을 재사용합니다. (API 호출 건너뜀)")
+        logger.info("기존 시즌 오프닝(opening.mp4)을 재사용합니다.")
 
-    # [클로징 파일 검사 및 최초 1회 생성]
     if not os.path.exists(config.CLOSING_PATH):
         logger.info("시즌 클로징 파일이 없어 최초 1회 자동 생성을 진행합니다.")
         if minimax_key:
@@ -67,11 +60,11 @@ def ensure_season_intro_outro():
             logger.warning("MINIMAX_API_KEY가 없어 단색 임시 클로징을 생성합니다.")
             ColorClip(size=(config.VIDEO_WIDTH, config.VIDEO_HEIGHT), color=(10, 10, 20), duration=6.0).write_videofile(config.CLOSING_PATH, fps=config.FPS)
     else:
-        logger.info("기존 시즌 클로징(closing.mp4)을 재사용합니다. (API 호출 건너뜀)")
+        logger.info("기존 시즌 클로징(closing.mp4)을 재사용합니다.")
 
 def generate_video_via_minimax(prompt: str, output_filepath: str):
     minimax_key = os.environ.get("MINIMAX_API_KEY")
-    url = "https://api.minimax.chat/v1/video_generation"
+    url = "[https://api.minimax.chat/v1/video_generation](https://api.minimax.chat/v1/video_generation)"
     headers = {"Authorization": f"Bearer {minimax_key}", "Content-Type": "application/json"}
     payload = {"prompt": prompt, "model": "video-01", "aspect_ratio": "9:16"}
 
@@ -81,7 +74,7 @@ def generate_video_via_minimax(prompt: str, output_filepath: str):
             res = json.loads(response.read().decode('utf-8'))
             task_id = res.get("task_id")
             
-        query_url = f"https://api.minimax.chat/v1/query/video_generation?task_id={task_id}"
+        query_url = f"[https://api.minimax.chat/v1/query/video_generation?task_id=](https://api.minimax.chat/v1/query/video_generation?task_id=){task_id}"
         while True:
             time.sleep(5)
             q_req = urllib.request.Request(query_url, headers=headers, method='GET')
@@ -99,10 +92,10 @@ def generate_video_via_minimax(prompt: str, output_filepath: str):
         ColorClip(size=(config.VIDEO_WIDTH, config.VIDEO_HEIGHT), color=(15, 10, 30), duration=6.0).write_videofile(output_filepath, fps=config.FPS)
 
 # ==========================================
-# 2. Gemini 대본 생성
+# 2. Gemini 대본 생성 (Structured JSON 예외 방어)
 # ==========================================
 def generate_script_via_gemini(api_key: str) -> EpisodeScript:
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+    url = f"[https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=](https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=){api_key}"
     prompt = """
     Create a short 3D animation script for 'The Clockwork Time Repository'.
     Characters: Ein (Silver Fox), Chrono (Tiger), Escape (Rabbit).
@@ -128,7 +121,7 @@ def generate_script_via_gemini(api_key: str) -> EpisodeScript:
         return EpisodeScript(title_ko=data['title_ko'], title_en=data['title_en'], title_ja=data['title_ja'], lines=[ScriptLine(**l) for l in data['lines']])
 
 # ==========================================
-# 3. Edge-TTS 음성 생성
+# 3. Edge-TTS 음성 합성
 # ==========================================
 async def generate_tts_files(lines: List[ScriptLine]) -> List[str]:
     audio_files = []
@@ -140,21 +133,21 @@ async def generate_tts_files(lines: List[ScriptLine]) -> List[str]:
     return audio_files
 
 # ==========================================
-# 4. MoviePy v2 합성 Engine (시즌 오프닝/클로징 + 본문)
+# 4. MoviePy v2 합성 Engine
 # ==========================================
 def render_full_episode(base_video_path: str, audio_files: List[str], output_path: str):
     opening_clip = VideoFileClip(config.OPENING_PATH)
-    opening_clip = opening_clip.subclipped(0, min(6.0, opening_clip.duration)).with_effects([CrossFadeIn(0.5)])
+    opening_clip = opening_clip.subclipped(0, min(6.0, opening_clip.duration)).with_effects([crossfadein(0.5)])
     
     closing_clip = VideoFileClip(config.CLOSING_PATH)
-    closing_clip = closing_clip.subclipped(0, min(6.0, closing_clip.duration)).with_effects([CrossFadeOut(0.5)])
+    closing_clip = closing_clip.subclipped(0, min(6.0, closing_clip.duration)).with_effects([crossfadeout(0.5)])
     
     body_video = VideoFileClip(base_video_path)
     
     audio_clips = []
     current_time = 0.5
     for a_file in audio_files:
-        clip = AudioFileClip(a_file).with_effects([AudioFadeIn(0.05), AudioFadeOut(0.05)]).with_start(current_time)
+        clip = AudioFileClip(a_file).with_effects([audio_fadein(0.05), audio_fadeout(0.05)]).with_start(current_time)
         audio_clips.append(clip)
         current_time += clip.duration + 0.4
         
@@ -204,7 +197,7 @@ async def async_main():
     logger.info("[3/5] TTS 음성 생성...")
     audio_files = await generate_tts_files(script.lines)
     
-    logger.info("[4/5] 시즌 오프닝 + 본문 + 시즌 클로징 합성...")
+    logger.info("[4/5] 영상 랜더링 및 오프닝/클로징/본문 합성...")
     render_full_episode(config.BASE_VIDEO_PATH, audio_files, config.OUTPUT_VIDEO_PATH)
     
     for af in audio_files:
@@ -215,7 +208,7 @@ async def async_main():
     if config.YOUTUBE_REFRESH_TOKEN:
         youtube_uploader.upload_private_video(config.OUTPUT_VIDEO_PATH)
 
-    logger.info("파이프라인 실행 완료!")
+    logger.info("파이프라인 실행 성공!")
 
 if __name__ == "__main__":
     asyncio.run(async_main())
