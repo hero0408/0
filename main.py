@@ -35,6 +35,27 @@ class EpisodeScript:
     lines: List[ScriptLine]
 
 # ==========================================
+# 0. Edge-TTS 캐릭터별 음성 커스텀 튜닝 맵
+# ==========================================
+CHARACTER_VOICE_CONFIG = {
+    "Ein": {
+        "voice": "ko-KR-SunHiNeural",
+        "pitch": "+10Hz",
+        "rate": "+5%"
+    },
+    "Chrono": {
+        "voice": "ko-KR-InJoonNeural",
+        "pitch": "-8Hz",
+        "rate": "-5%"
+    },
+    "Escape": {
+        "voice": "ko-KR-HyunsuNeural",
+        "pitch": "+22Hz",
+        "rate": "+15%"
+    }
+}
+
+# ==========================================
 # 1. 시즌 고정 오프닝/클로징 캐시 처리 (토큰 소모 0%)
 # ==========================================
 def ensure_season_intro_outro():
@@ -145,7 +166,7 @@ def generate_script_via_groq(api_key: str) -> EpisodeScript:
     {
         "title_ko": "시침이 멈춘 시간 보관소",
         "title_en": "The Clockwork Time Repository",
-        "title_ja": "針가 止まった時間保管所",
+        "title_ja": "針が止まった時間保管所",
         "lines": [
             {"character": "Ein", "text_ko": "보관소의 태엽이 다시 돌아가기 시작했어.", "text_en": "The mainspring started turning again.", "text_ja": "保管所のゼンマイが再び回り始めた。"},
             {"character": "Chrono", "text_ko": "시간의 궤도를 벗어나지 않도록 주의해라.", "text_en": "Be careful not to stray off course.", "text_ja": "時間の軌道を外れないよう注意しろ。"},
@@ -211,15 +232,30 @@ def get_script_with_fallback() -> EpisodeScript:
     )
 
 # ==========================================
-# 5. Edge-TTS 음성 합성
+# 5. Edge-TTS 음성 합성 (캐릭터 커스텀 Pitch/Rate 튜닝 적용)
 # ==========================================
 async def generate_tts_files(lines: List[ScriptLine]) -> List[str]:
     audio_files = []
     for idx, line in enumerate(lines):
-        voice = config.VOICE_MAP.get(line.character, 'ko-KR-InJoonNeural')
+        # 캐릭터별 커스텀 튜닝 설정 로드
+        voice_cfg = CHARACTER_VOICE_CONFIG.get(line.character, {
+            "voice": "ko-KR-InJoonNeural",
+            "pitch": "+0Hz",
+            "rate": "+0%"
+        })
+        
         output_file = f"temp_dialogue_{idx}.mp3"
-        await edge_tts.Communicate(line.text_ko, voice).save(output_file)
+        
+        # pitch 및 rate 옵션을 포함하여 Edge-TTS 음성 생성
+        communicate = edge_tts.Communicate(
+            text=line.text_ko,
+            voice=voice_cfg["voice"],
+            pitch=voice_cfg["pitch"],
+            rate=voice_cfg["rate"]
+        )
+        await communicate.save(output_file)
         audio_files.append(output_file)
+        
     return audio_files
 
 # ==========================================
@@ -283,7 +319,7 @@ async def async_main():
     if not os.path.exists(config.BASE_VIDEO_PATH):
         ColorClip(size=(config.VIDEO_WIDTH, config.VIDEO_HEIGHT), color=(20, 20, 35), duration=10.0).write_videofile(config.BASE_VIDEO_PATH, fps=config.FPS)
 
-    logger.info("[3/5] TTS 음성 생성...")
+    logger.info("[3/5] 커스텀 TTS 음성 생성 (Pitch/Rate 적용)...")
     audio_files = await generate_tts_files(script.lines)
     
     logger.info("[4/5] 영상 랜더링 및 오프닝/클로징/본문 합성...")
